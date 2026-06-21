@@ -23,7 +23,9 @@
       "Bash(du -sh target/release/bundle/macos/*.app)",
       "Bash(osascript -e 'tell application \"System Events\" to get name of first process whose frontmost is true')",
       "Bash(screencapture -x /tmp/builtapp.png)",
-      "Bash(git --no-pager log --oneline -2)"
+      "Bash(git --no-pager log --oneline -2)",
+      "Bash(sed -n '/window.addEventListener\\(\"keydown\", \\(e\\) => {\\\\n  if \\(!e.metaKey\\)/,/}, true\\);/p' app/src/main.js)",
+      "Bash(awk '/if \\\\\\(!e.metaKey\\\\\\) return;/{f=1} f{print NR\": \"$0} /case \"Escape\"/{if\\(f\\){exit}}' app/src/main.js)"
     ],
     "additionalDirectories": [
       "/tmp",
