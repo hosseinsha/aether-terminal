@@ -226,3 +226,18 @@ body.controls-hidden #controls { opacity: 0; transform: translateX(8px); pointer
 .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: #fff; transition: 0.2s var(--spring); }
 .switch.on { background: var(--accent); }
 .switch.on::after { left: 19px; }
+
+/* ---------- split dividers (drag to resize) ---------- */
+#dividers { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+#dividers .divider { position: absolute; pointer-events: auto; }
+.divider.h { width: 12px; transform: translateX(-50%); cursor: col-resize; }
+.divider.v { height: 12px; transform: translateY(-50%); cursor: row-resize; }
+.divider::before { content: ""; position: absolute; background: transparent; border-radius: 2px; transition: background 0.15s, box-shadow 0.15s; }
+.divider.h::before { left: 50%; transform: translateX(-50%); top: 0; bottom: 0; width: 2px; }
+.divider.v::before { top: 50%; transform: translateY(-50%); left: 0; right: 0; height: 2px; }
+.divider:hover::before { background: color-mix(in srgb, var(--accent) 75%, transparent); box-shadow: 0 0 10px var(--accent); }
+body.dragging .pane { transition: none !important; }
+#stage.overview #dividers { display: none; }
+
+/* ---------- overview rearrange ---------- */
+.pane.drop-target { border-color: var(--accent) !important; box-shadow: 0 0 0 2px var(--accent), 0 0 30px -4px var(--accent) !important; }

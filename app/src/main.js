@@ -1,8 +1,17 @@
-// AETHER compositor — multiple live xterm panes over the session protocol.
+// AETHER compositor — live xterm panes over the session protocol.
 //
-// Each visual pane hosts a real xterm.js terminal backed by a server session.
-// Layout, depth-of-field focus, animated reflow and themes come from the
-// prototype; the panes are now live terminals instead of static text.
+// Layout is a BSP split tree: each leaf is a pane, each split node has a
+// direction + ratio, so dividers can be dragged to resize. Depth-of-field
+// focus, animated reflow, themes and an overview canvas come from the prototype.
+
+function showErr(msg) {
+  const d = document.createElement("div");
+  d.style.cssText = "position:fixed;z-index:9999;left:10px;bottom:10px;color:#f7768e;font:12px monospace;background:#000c;padding:8px 10px;border-radius:8px;max-width:92%;white-space:pre-wrap";
+  d.textContent = msg;
+  document.body.appendChild(d);
+}
+window.addEventListener("error", (e) => showErr("JS: " + (e.message || e.error) + " @ " + (e.filename || "").split("/").pop() + ":" + e.lineno));
+window.addEventListener("unhandledrejection", (e) => showErr("RJ: " + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason))));
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -50,22 +59,22 @@ const THEMES = {
 };
 const THEME_KEYS = Object.keys(THEMES);
 let themeKey = "default";
+const rootStyle = document.documentElement.style;
 
 function applyTheme(key) {
   const t = THEMES[key];
   if (!t) return;
   themeKey = key;
-  const root = document.documentElement.style;
-  Object.entries(t.vars).forEach(([k, v]) => root.setProperty(k, v));
+  Object.entries(t.vars).forEach(([k, v]) => rootStyle.setProperty(k, v));
   document.body.dataset.bg = t.bg;
-  root.setProperty("--grain", t.grain);
+  rootStyle.setProperty("--grain", t.grain);
   document.body.classList.toggle("crt", t.crt);
   panes.forEach((p) => { p.term.options.theme = t.xterm; });
   document.getElementById("theme-label").textContent = t.label;
   syncPanel(t);
 }
+function cycleTheme() { applyTheme(THEME_KEYS[(THEME_KEYS.indexOf(themeKey) + 1) % THEME_KEYS.length]); }
 
-// Keep the appearance panel controls in sync with the active theme.
 function syncPanel(t) {
   const setRange = (rid, vid, val, fmt) => {
     const r = document.getElementById(rid);
@@ -81,60 +90,104 @@ function syncPanel(t) {
   document.querySelectorAll("#ap-accents .swatch").forEach((s) => s.classList.toggle("sel", s.dataset.a === t.vars["--accent"]));
 }
 function toggleAppearance() { document.getElementById("appearance").classList.toggle("open"); }
-function cycleTheme() {
-  applyTheme(THEME_KEYS[(THEME_KEYS.indexOf(themeKey) + 1) % THEME_KEYS.length]);
-}
 
 // ============================================================
 // State
 // ============================================================
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("canvas");
+const dividers = document.createElement("div");
+dividers.id = "dividers";
+canvas.appendChild(dividers);
 
-let panes = [];            // { id, el, term, fit, sessionId, title }
-let focusId = null;        // local pane uid
+let panes = [];        // { id, el, term, fit, sessionId, title }
+let root = null;       // BSP tree: {type:"leaf",pane} | {type:"split",dir,ratio,a,b,_rect}
+let focusId = null;
 let maximized = false;
 let uid = 1;
-const pending = [];        // FIFO of panes awaiting a session id
+const pending = [];
 const bySession = new Map();
+let dragState = null;   // divider resize
+let rearrange = null;   // overview rearrange
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ============================================================
-// Layout — auto-tiling rects (% of stage)
+// Tree helpers
 // ============================================================
-function layoutFor(n) {
-  switch (n) {
-    case 1: return [[0, 0, 100, 100]];
-    case 2: return [[0, 0, 50, 100], [50, 0, 50, 100]];
-    case 3: return [[0, 0, 50, 100], [50, 0, 50, 50], [50, 50, 50, 50]];
-    case 4: return [[0, 0, 50, 50], [50, 0, 50, 50], [0, 50, 50, 50], [50, 50, 50, 50]];
-    case 5: return [[0, 0, 50, 50], [50, 0, 50, 50], [0, 50, 33.33, 50], [33.33, 50, 33.34, 50], [66.67, 50, 33.33, 50]];
-    default: {
-      const r = [];
-      for (let i = 0; i < n; i++) { const c = i % 3, row = Math.floor(i / 3); r.push([c * 33.33, row * 50, 33.34, 50]); }
-      return r;
-    }
-  }
+function leaves(node, acc = []) {
+  if (!node) return acc;
+  if (node.type === "leaf") acc.push(node);
+  else { leaves(node.a, acc); leaves(node.b, acc); }
+  return acc;
+}
+function findLeaf(node, id) {
+  if (!node) return null;
+  if (node.type === "leaf") return node.pane.id === id ? node : null;
+  return findLeaf(node.a, id) || findLeaf(node.b, id);
+}
+function findParent(node, target, parent = null) {
+  if (node === target) return parent;
+  if (node.type === "split") return findParent(node.a, target, node) || findParent(node.b, target, node);
+  return null;
 }
 
-function render() {
-  const rects = layoutFor(panes.length);
-  panes.forEach((p, i) => {
-    let [x, y, w, h] = rects[i];
-    if (maximized && p.id === focusId) { x = 0; y = 0; w = 100; h = 100; }
-    if (maximized && p.id !== focusId) { p.el.style.opacity = "0"; p.el.style.pointerEvents = "none"; }
-    else { p.el.style.opacity = ""; p.el.style.pointerEvents = ""; }
+// ============================================================
+// Layout — walk the tree, place panes, draw dividers
+// ============================================================
+function layout() {
+  dividers.innerHTML = "";
+  if (!root) return;
 
-    const g = "var(--gap)";
-    p.el.style.left = `calc(${x}% + ${g} / 2)`;
-    p.el.style.top = `calc(${y}% + ${g} / 2)`;
-    p.el.style.width = `calc(${w}% - ${g})`;
-    p.el.style.height = `calc(${h}% - ${g})`;
+  const place = (node, x, y, w, h) => {
+    if (node.type === "leaf") {
+      const p = node.pane;
+      let [X, Y, W, H] = [x, y, w, h];
+      if (maximized && p.id === focusId) { X = 0; Y = 0; W = 100; H = 100; }
+      if (maximized && p.id !== focusId) { p.el.style.opacity = "0"; p.el.style.pointerEvents = "none"; }
+      else { p.el.style.opacity = ""; p.el.style.pointerEvents = ""; }
+      const g = "var(--gap)";
+      p.el.style.left = `calc(${X}% + ${g} / 2)`;
+      p.el.style.top = `calc(${Y}% + ${g} / 2)`;
+      p.el.style.width = `calc(${W}% - ${g})`;
+      p.el.style.height = `calc(${H}% - ${g})`;
+      p.el.classList.toggle("active", p.id === focusId);
+      p.el.classList.toggle("inactive", p.id !== focusId);
+      return;
+    }
+    node._rect = { x, y, w, h };
+    if (node.dir === "h") {
+      const wa = w * node.ratio;
+      place(node.a, x, y, wa, h);
+      place(node.b, x + wa, y, w - wa, h);
+      if (!maximized) addDivider(node, "h", x + wa, y, h);
+    } else {
+      const ha = h * node.ratio;
+      place(node.a, x, y, w, ha);
+      place(node.b, x, y + ha, w, h - ha);
+      if (!maximized) addDivider(node, "v", y + ha, x, w);
+    }
+  };
+  place(root, 0, 0, 100, 100);
 
-    p.el.classList.toggle("active", p.id === focusId);
-    p.el.classList.toggle("inactive", p.id !== focusId);
-  });
   const fp = panes.find((p) => p.id === focusId);
   if (fp) fp.term.focus();
+}
+
+function addDivider(node, dir, at, start, span) {
+  const d = document.createElement("div");
+  d.className = "divider " + dir;
+  if (dir === "h") {
+    d.style.left = `${at}%`;
+    d.style.top = `calc(${start}% + var(--gap) / 2)`;
+    d.style.height = `calc(${span}% - var(--gap))`;
+  } else {
+    d.style.top = `${at}%`;
+    d.style.left = `calc(${start}% + var(--gap) / 2)`;
+    d.style.width = `calc(${span}% - var(--gap))`;
+  }
+  d.addEventListener("mousedown", (e) => startDividerDrag(e, node, dir));
+  dividers.appendChild(d);
 }
 
 // ============================================================
@@ -143,28 +196,20 @@ function render() {
 function makeTerminal() {
   const term = new Terminal({
     fontFamily: '"JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace',
-    fontSize: 13,
-    cursorBlink: true,
-    allowTransparency: true,
-    allowProposedApi: true,
-    scrollback: 5000,
-    theme: THEMES[themeKey].xterm,
+    fontSize: 13, cursorBlink: true, allowTransparency: true, allowProposedApi: true,
+    scrollback: 5000, theme: THEMES[themeKey].xterm,
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   return { term, fit };
 }
 
-// GPU renderer for throughput; falls back to the DOM renderer if the WebGL
-// context is lost or unavailable.
 function attachWebgl(term) {
   try {
     const webgl = new WebglAddon.WebglAddon();
     webgl.onContextLoss(() => { try { webgl.dispose(); } catch (_) {} });
     term.loadAddon(webgl);
-  } catch (_) {
-    /* DOM renderer remains active */
-  }
+  } catch (_) { /* DOM renderer remains */ }
 }
 
 function fitPane(p) {
@@ -173,7 +218,7 @@ function fitPane(p) {
 }
 
 function addPane() {
-  if (panes.length >= 6) return;
+  if (panes.length >= 8) return;
   const id = uid++;
   const el = document.createElement("div");
   el.className = "pane opening";
@@ -188,7 +233,7 @@ function addPane() {
 
   el.addEventListener("mousedown", (e) => {
     if (e.target.classList.contains("pane-close")) { e.stopPropagation(); closePane(id); return; }
-    if (stage.classList.contains("overview")) toggleOverview();
+    if (stage.classList.contains("overview")) { startRearrange(e, id); return; }
     setFocus(id);
   });
   el.addEventListener("transitionend", (e) => {
@@ -202,13 +247,27 @@ function addPane() {
     if (p.sessionId !== null) invoke("input", { id: p.sessionId, data: Array.from(new TextEncoder().encode(d)) });
   });
 
+  // Insert into the tree: split the currently focused leaf.
+  const leaf = { type: "leaf", pane: p };
+  if (!root) {
+    root = leaf;
+  } else {
+    const target = findLeaf(root, focusId) || leaves(root).pop();
+    const r = target.pane.el.getBoundingClientRect();
+    const dir = r.width >= r.height ? "h" : "v";
+    const parent = findParent(root, target);
+    const split = { type: "split", dir, ratio: 0.5, a: target, b: leaf };
+    if (!parent) root = split;
+    else if (parent.a === target) parent.a = split;
+    else parent.b = split;
+  }
+
   panes.push(p);
   focusId = id;
   maximized = false;
   requestAnimationFrame(() => el.classList.remove("opening"));
-  render();
+  layout();
 
-  // Size to the (full, for the first pane) layout, then create the session.
   setTimeout(() => {
     fitPane(p);
     invoke("create_session", { cols: p.term.cols || 80, rows: p.term.rows || 24 });
@@ -221,22 +280,101 @@ function closePane(id) {
   const idx = panes.findIndex((p) => p.id === id);
   if (idx < 0) return;
   const p = panes[idx];
+
+  const leaf = findLeaf(root, id);
+  const parent = findParent(root, leaf);
+  if (!parent) {
+    root = null;
+  } else {
+    const sibling = parent.a === leaf ? parent.b : parent.a;
+    const grand = findParent(root, parent);
+    if (!grand) root = sibling;
+    else if (grand.a === parent) grand.a = sibling;
+    else grand.b = sibling;
+  }
+
   if (p.sessionId !== null) { invoke("close_session", { id: p.sessionId }); bySession.delete(p.sessionId); }
   panes.splice(idx, 1);
   p.el.classList.add("closing");
   setTimeout(() => { p.el.remove(); try { p.term.dispose(); } catch (_) {} }, 420);
   if (focusId === id) focusId = panes[Math.min(idx, panes.length - 1)].id;
   maximized = false;
-  render();
+  layout();
 }
 
-function setFocus(id) { focusId = id; maximized = false; render(); }
+function setFocus(id) { focusId = id; maximized = false; layout(); }
 function cycleFocus(dir) {
   const idx = panes.findIndex((p) => p.id === focusId);
   setFocus(panes[(idx + dir + panes.length) % panes.length].id);
 }
-function toggleMax() { maximized = !maximized; render(); }
-function toggleOverview() { maximized = false; stage.classList.toggle("overview"); render(); }
+function toggleMax() { maximized = !maximized; layout(); }
+function toggleOverview() { maximized = false; stage.classList.toggle("overview"); layout(); }
+
+// ============================================================
+// Divider drag-to-resize
+// ============================================================
+function startDividerDrag(e, node, dir) {
+  e.preventDefault();
+  document.body.classList.add("dragging");
+  dragState = { node, dir };
+  window.addEventListener("mousemove", onDividerMove);
+  window.addEventListener("mouseup", onDividerUp);
+}
+function onDividerMove(e) {
+  if (!dragState) return;
+  const { node, dir } = dragState;
+  const r = canvas.getBoundingClientRect();
+  if (dir === "h") {
+    const pct = ((e.clientX - r.left) / r.width) * 100;
+    node.ratio = clamp((pct - node._rect.x) / node._rect.w, 0.12, 0.88);
+  } else {
+    const pct = ((e.clientY - r.top) / r.height) * 100;
+    node.ratio = clamp((pct - node._rect.y) / node._rect.h, 0.12, 0.88);
+  }
+  layout();
+}
+function onDividerUp() {
+  document.body.classList.remove("dragging");
+  window.removeEventListener("mousemove", onDividerMove);
+  window.removeEventListener("mouseup", onDividerUp);
+  dragState = null;
+  panes.forEach(fitPane);
+}
+
+// ============================================================
+// Overview drag-to-rearrange (swap two panes' tree slots)
+// ============================================================
+function startRearrange(e, id) {
+  e.preventDefault();
+  rearrange = { id, moved: false };
+  window.addEventListener("mousemove", onRearrangeMove);
+  window.addEventListener("mouseup", onRearrangeUp);
+}
+function paneUnder(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el && el.closest ? el.closest(".pane") : null;
+}
+function onRearrangeMove(e) {
+  if (!rearrange) return;
+  rearrange.moved = true;
+  document.querySelectorAll(".pane.drop-target").forEach((p) => p.classList.remove("drop-target"));
+  const pane = paneUnder(e.clientX, e.clientY);
+  if (pane && pane.dataset.id !== String(rearrange.id)) pane.classList.add("drop-target");
+}
+function onRearrangeUp(e) {
+  window.removeEventListener("mousemove", onRearrangeMove);
+  window.removeEventListener("mouseup", onRearrangeUp);
+  document.querySelectorAll(".pane.drop-target").forEach((p) => p.classList.remove("drop-target"));
+  const r = rearrange;
+  rearrange = null;
+  if (!r) return;
+  if (!r.moved) { toggleOverview(); setFocus(r.id); return; } // a plain click = dive in
+  const target = paneUnder(e.clientX, e.clientY);
+  if (target && target.dataset.id !== String(r.id)) {
+    const la = findLeaf(root, r.id), lb = findLeaf(root, parseInt(target.dataset.id));
+    if (la && lb) { const tmp = la.pane; la.pane = lb.pane; lb.pane = tmp; layout(); }
+  }
+}
 
 // ============================================================
 // Server -> panes
@@ -270,7 +408,7 @@ await listen("aether:error", (e) => {
 });
 
 // ============================================================
-// Input: dock + keyboard
+// Controls: toolbar + appearance panel + keyboard
 // ============================================================
 document.querySelectorAll("#controls .ctl").forEach((b) => {
   b.addEventListener("click", () => {
@@ -283,18 +421,15 @@ document.querySelectorAll("#controls .ctl").forEach((b) => {
     else if (a === "appearance") toggleAppearance();
   });
 });
-
 document.getElementById("ctl-toggle").addEventListener("click", () => {
   document.body.classList.toggle("controls-hidden");
 });
 
-// ----- build the appearance panel -----
 const ACCENTS = [
   { a: "#7aa2f7", b: "#bb9af7" }, { a: "#bb9af7", b: "#7dcfff" },
   { a: "#9ece6a", b: "#7dcfff" }, { a: "#f7768e", b: "#ff9e64" },
   { a: "#ff9e64", b: "#e0af68" }, { a: "#7dcfff", b: "#9ece6a" },
 ];
-const root = document.documentElement.style;
 
 const apThemes = document.getElementById("ap-themes");
 Object.entries(THEMES).forEach(([key, t]) => {
@@ -315,8 +450,8 @@ ACCENTS.forEach((c) => {
   s.dataset.a = c.a;
   s.style.background = `linear-gradient(135deg, ${c.a}, ${c.b})`;
   s.onclick = () => {
-    root.setProperty("--accent", c.a);
-    root.setProperty("--accent-2", c.b);
+    rootStyle.setProperty("--accent", c.a);
+    rootStyle.setProperty("--accent-2", c.b);
     document.querySelectorAll("#ap-accents .swatch").forEach((x) => x.classList.remove("sel"));
     s.classList.add("sel");
   };
@@ -327,21 +462,20 @@ function bindRange(rid, vid, fmt, apply) {
   const r = document.getElementById(rid), v = document.getElementById(vid);
   r.addEventListener("input", () => { v.textContent = fmt(apply(r.value)); });
 }
-bindRange("r-gap", "v-gap", (v) => v + "px", (v) => { root.setProperty("--gap", v + "px"); panes.forEach(fitPane); return v; });
-bindRange("r-radius", "v-radius", (v) => v + "px", (v) => { root.setProperty("--radius", v + "px"); return v; });
-bindRange("r-alpha", "v-alpha", (v) => v, (v) => { const a = (v / 100).toFixed(2); root.setProperty("--pane-alpha", a); return a; });
-bindRange("r-dim", "v-dim", (v) => v, (v) => { const a = (v / 100).toFixed(2); root.setProperty("--inactive-opacity", a); return a; });
-bindRange("r-blur", "v-blur", (v) => v + "px", (v) => { root.setProperty("--inactive-blur", v + "px"); return v; });
-bindRange("r-sat", "v-sat", (v) => v, (v) => { const a = (v / 100).toFixed(2); root.setProperty("--inactive-sat", a); return a; });
+bindRange("r-gap", "v-gap", (v) => v + "px", (v) => { rootStyle.setProperty("--gap", v + "px"); panes.forEach(fitPane); return v; });
+bindRange("r-radius", "v-radius", (v) => v + "px", (v) => { rootStyle.setProperty("--radius", v + "px"); return v; });
+bindRange("r-alpha", "v-alpha", (v) => v, (v) => { const a = (v / 100).toFixed(2); rootStyle.setProperty("--pane-alpha", a); return a; });
+bindRange("r-dim", "v-dim", (v) => v, (v) => { const a = (v / 100).toFixed(2); rootStyle.setProperty("--inactive-opacity", a); return a; });
+bindRange("r-blur", "v-blur", (v) => v + "px", (v) => { rootStyle.setProperty("--inactive-blur", v + "px"); return v; });
+bindRange("r-sat", "v-sat", (v) => v, (v) => { const a = (v / 100).toFixed(2); rootStyle.setProperty("--inactive-sat", a); return a; });
 
 function bindToggle(id, on, off) {
   const el = document.getElementById(id);
   el.addEventListener("click", () => { el.classList.toggle("on"); el.classList.contains("on") ? on() : off(); });
 }
-bindToggle("t-grain", () => root.setProperty("--grain", "0.05"), () => root.setProperty("--grain", "0"));
+bindToggle("t-grain", () => rootStyle.setProperty("--grain", "0.05"), () => rootStyle.setProperty("--grain", "0"));
 bindToggle("t-crt", () => document.body.classList.add("crt"), () => document.body.classList.remove("crt"));
 
-// Capture phase so our ⌘ shortcuts win before xterm sees the keystroke.
 window.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
   switch (e.key) {
