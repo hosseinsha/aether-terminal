@@ -62,7 +62,25 @@ function applyTheme(key) {
   document.body.classList.toggle("crt", t.crt);
   panes.forEach((p) => { p.term.options.theme = t.xterm; });
   document.getElementById("theme-label").textContent = t.label;
+  syncPanel(t);
 }
+
+// Keep the appearance panel controls in sync with the active theme.
+function syncPanel(t) {
+  const setRange = (rid, vid, val, fmt) => {
+    const r = document.getElementById(rid);
+    if (!r) return;
+    r.value = val;
+    document.getElementById(vid).textContent = fmt(val);
+  };
+  setRange("r-radius", "v-radius", parseInt(t.vars["--radius"]), (v) => v + "px");
+  setRange("r-alpha", "v-alpha", Math.round(parseFloat(t.vars["--pane-alpha"]) * 100), (v) => (v / 100).toFixed(2));
+  const g = document.getElementById("t-grain"); if (g) g.classList.toggle("on", parseFloat(t.grain) > 0);
+  const c = document.getElementById("t-crt"); if (c) c.classList.toggle("on", t.crt);
+  document.querySelectorAll("#ap-themes .theme-card").forEach((card) => card.classList.toggle("sel", card.dataset.theme === themeKey));
+  document.querySelectorAll("#ap-accents .swatch").forEach((s) => s.classList.toggle("sel", s.dataset.a === t.vars["--accent"]));
+}
+function toggleAppearance() { document.getElementById("appearance").classList.toggle("open"); }
 function cycleTheme() {
   applyTheme(THEME_KEYS[(THEME_KEYS.indexOf(themeKey) + 1) % THEME_KEYS.length]);
 }
@@ -262,12 +280,66 @@ document.querySelectorAll("#controls .ctl").forEach((b) => {
     else if (a === "max") toggleMax();
     else if (a === "overview") toggleOverview();
     else if (a === "theme") cycleTheme();
+    else if (a === "appearance") toggleAppearance();
   });
 });
 
 document.getElementById("ctl-toggle").addEventListener("click", () => {
   document.body.classList.toggle("controls-hidden");
 });
+
+// ----- build the appearance panel -----
+const ACCENTS = [
+  { a: "#7aa2f7", b: "#bb9af7" }, { a: "#bb9af7", b: "#7dcfff" },
+  { a: "#9ece6a", b: "#7dcfff" }, { a: "#f7768e", b: "#ff9e64" },
+  { a: "#ff9e64", b: "#e0af68" }, { a: "#7dcfff", b: "#9ece6a" },
+];
+const root = document.documentElement.style;
+
+const apThemes = document.getElementById("ap-themes");
+Object.entries(THEMES).forEach(([key, t]) => {
+  const card = document.createElement("div");
+  card.className = "theme-card";
+  card.dataset.theme = key;
+  card.style.setProperty("--tc-a", t.vars["--accent"]);
+  card.style.setProperty("--tc-b", t.vars["--accent-2"]);
+  card.innerHTML = `<span class="tc-name">${t.label}</span>`;
+  card.onclick = () => applyTheme(key);
+  apThemes.appendChild(card);
+});
+
+const apAccents = document.getElementById("ap-accents");
+ACCENTS.forEach((c) => {
+  const s = document.createElement("div");
+  s.className = "swatch";
+  s.dataset.a = c.a;
+  s.style.background = `linear-gradient(135deg, ${c.a}, ${c.b})`;
+  s.onclick = () => {
+    root.setProperty("--accent", c.a);
+    root.setProperty("--accent-2", c.b);
+    document.querySelectorAll("#ap-accents .swatch").forEach((x) => x.classList.remove("sel"));
+    s.classList.add("sel");
+  };
+  apAccents.appendChild(s);
+});
+
+function bindRange(rid, vid, fmt, apply) {
+  const r = document.getElementById(rid), v = document.getElementById(vid);
+  r.addEventListener("input", () => { v.textContent = fmt(apply(r.value)); });
+}
+bindRange("r-gap", "v-gap", (v) => v + "px", (v) => { root.setProperty("--gap", v + "px"); panes.forEach(fitPane); return v; });
+bindRange("r-radius", "v-radius", (v) => v + "px", (v) => { root.setProperty("--radius", v + "px"); return v; });
+bindRange("r-alpha", "v-alpha", (v) => v, (v) => { const a = (v / 100).toFixed(2); root.setProperty("--pane-alpha", a); return a; });
+bindRange("r-dim", "v-dim", (v) => v, (v) => { const a = (v / 100).toFixed(2); root.setProperty("--inactive-opacity", a); return a; });
+bindRange("r-blur", "v-blur", (v) => v + "px", (v) => { root.setProperty("--inactive-blur", v + "px"); return v; });
+bindRange("r-sat", "v-sat", (v) => v, (v) => { const a = (v / 100).toFixed(2); root.setProperty("--inactive-sat", a); return a; });
+
+function bindToggle(id, on, off) {
+  const el = document.getElementById(id);
+  el.addEventListener("click", () => { el.classList.toggle("on"); el.classList.contains("on") ? on() : off(); });
+}
+bindToggle("t-grain", () => root.setProperty("--grain", "0.05"), () => root.setProperty("--grain", "0"));
+bindToggle("t-crt", () => document.body.classList.add("crt"), () => document.body.classList.remove("crt"));
 
 // Capture phase so our ⌘ shortcuts win before xterm sees the keystroke.
 window.addEventListener("keydown", (e) => {
@@ -281,6 +353,7 @@ window.addEventListener("keydown", (e) => {
     case "y": e.preventDefault(); cycleTheme(); break;
     case "o": e.preventDefault(); toggleOverview(); break;
     case ".": e.preventDefault(); document.body.classList.toggle("controls-hidden"); break;
+    case ",": e.preventDefault(); toggleAppearance(); break;
     case "Escape": if (stage.classList.contains("overview")) { e.preventDefault(); toggleOverview(); } break;
   }
 }, true);

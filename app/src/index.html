@@ -17,13 +17,34 @@
         <button class="ctl" data-act="close" title="Close  ⌘W">✕ <span class="lbl">Close</span></button>
         <button class="ctl" data-act="max" title="Zoom  ⌘↵">⤢ <span class="lbl">Zoom</span></button>
         <button class="ctl" data-act="overview" title="Overview  ⌘O">▦ <span class="lbl">Overview</span></button>
-        <button class="ctl" id="theme-btn" data-act="theme" title="Cycle theme  ⌘Y"><span class="swatch"></span><span id="theme-label" class="lbl">Default</span></button>
+        <button class="ctl" data-act="theme" title="Cycle theme  ⌘Y"><span class="swatch"></span><span id="theme-label" class="lbl">Default</span></button>
+        <button class="ctl" data-act="appearance" title="Appearance  ⌘,">✦ <span class="lbl">Style</span></button>
       </div>
       <button id="ctl-toggle" title="Show/hide controls  ⌘.">⋯</button>
     </div>
 
     <div id="stage">
       <div id="canvas"></div>
+    </div>
+
+    <div id="appearance">
+      <h2>✦ APPEARANCE</h2>
+      <div class="sub" style="margin-top:4px">Live design tokens — tweak the look in real time.</div>
+
+      <div class="grp"><label>Theme</label><div class="theme-list" id="ap-themes"></div></div>
+      <div class="grp"><label>Accent</label><div class="swatches" id="ap-accents"></div></div>
+
+      <div class="grp"><label>Gap <span class="val" id="v-gap">14px</span></label><input type="range" id="r-gap" min="0" max="40" value="14"></div>
+      <div class="grp"><label>Corner radius <span class="val" id="v-radius">14px</span></label><input type="range" id="r-radius" min="0" max="30" value="14"></div>
+      <div class="grp"><label>Pane translucency <span class="val" id="v-alpha">0.55</span></label><input type="range" id="r-alpha" min="20" max="100" value="55"></div>
+
+      <div class="sub">Depth of field — how far unfocused panes recede</div>
+      <div class="grp"><label>Inactive dim <span class="val" id="v-dim">0.60</span></label><input type="range" id="r-dim" min="20" max="100" value="60"></div>
+      <div class="grp"><label>Inactive blur <span class="val" id="v-blur">2px</span></label><input type="range" id="r-blur" min="0" max="10" step="0.5" value="2"></div>
+      <div class="grp"><label>Inactive desaturate <span class="val" id="v-sat">0.60</span></label><input type="range" id="r-sat" min="0" max="100" value="60"></div>
+
+      <div class="toggle-row">Film grain <div class="switch on" id="t-grain"></div></div>
+      <div class="toggle-row">CRT scanlines <div class="switch" id="t-crt"></div></div>
     </div>
   </div>
 
