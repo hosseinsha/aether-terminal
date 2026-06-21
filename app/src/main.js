@@ -65,6 +65,66 @@ const THEMES = {
       brightBlue: "#74c69d", brightMagenta: "#a3b18a", brightCyan: "#74c69d", brightWhite: "#eef2ea",
     },
   },
+  mono: {
+    label: "Monochrome", bg: "mono", crt: false, grain: "0.06",
+    vars: { "--accent": "#bdbdbd", "--accent-2": "#7a7a7a", "--radius": "6px", "--pane-alpha": "0.5" },
+    xterm: {
+      background: "rgba(0,0,0,0)", foreground: "#e6e6e6", cursor: "#e6e6e6", cursorAccent: "#1a1a1a",
+      selectionBackground: "rgba(200,200,200,0.30)",
+      black: "#2a2a2a", red: "#9a9a9a", green: "#bcbcbc", yellow: "#d2d2d2",
+      blue: "#8a8a8a", magenta: "#a8a8a8", cyan: "#c4c4c4", white: "#e6e6e6",
+      brightBlack: "#5a5a5a", brightRed: "#b4b4b4", brightGreen: "#d4d4d4", brightYellow: "#e2e2e2",
+      brightBlue: "#a0a0a0", brightMagenta: "#c2c2c2", brightCyan: "#dcdcdc", brightWhite: "#ffffff",
+    },
+  },
+  ocean: {
+    label: "Ocean", bg: "ocean", crt: false, grain: "0.04",
+    vars: { "--accent": "#38bdf8", "--accent-2": "#2dd4bf", "--radius": "16px", "--pane-alpha": "0.5" },
+    xterm: {
+      background: "rgba(0,0,0,0)", foreground: "#cdeeff", cursor: "#38bdf8", cursorAccent: "#04181f",
+      selectionBackground: "rgba(56,189,248,0.30)",
+      black: "#0a2230", red: "#ff7a7a", green: "#34d399", yellow: "#fcd34d",
+      blue: "#38bdf8", magenta: "#818cf8", cyan: "#2dd4bf", white: "#cdeeff",
+      brightBlack: "#3a5a6a", brightRed: "#ff9a9a", brightGreen: "#6ee7b7", brightYellow: "#fde68a",
+      brightBlue: "#7dd3fc", brightMagenta: "#a5b4fc", brightCyan: "#5eead4", brightWhite: "#eafaff",
+    },
+  },
+  ferrari: {
+    label: "Ferrari", bg: "ferrari", crt: false, grain: "0.05",
+    vars: { "--accent": "#ff2800", "--accent-2": "#ffd200", "--radius": "8px", "--pane-alpha": "0.55" },
+    xterm: {
+      background: "rgba(0,0,0,0)", foreground: "#fff2f0", cursor: "#ff2800", cursorAccent: "#1a0303",
+      selectionBackground: "rgba(255,40,0,0.30)",
+      black: "#1a0303", red: "#ff2800", green: "#7bd13b", yellow: "#ffd200",
+      blue: "#5a9bd4", magenta: "#ff5e7a", cyan: "#4dd0e1", white: "#fff2f0",
+      brightBlack: "#5a2020", brightRed: "#ff5a3c", brightGreen: "#9ee05a", brightYellow: "#ffe24d",
+      brightBlue: "#7ab8e8", brightMagenta: "#ff85a0", brightCyan: "#72e0ef", brightWhite: "#ffffff",
+    },
+  },
+  claude: {
+    label: "Claude", bg: "claude", crt: false, grain: "0.05",
+    vars: { "--accent": "#da7756", "--accent-2": "#e3a47f", "--radius": "14px", "--pane-alpha": "0.5" },
+    xterm: {
+      background: "rgba(0,0,0,0)", foreground: "#f0eee6", cursor: "#da7756", cursorAccent: "#1f1410",
+      selectionBackground: "rgba(218,119,86,0.30)",
+      black: "#2a1c14", red: "#da7756", green: "#a3a380", yellow: "#d4a27f",
+      blue: "#8a9a9a", magenta: "#c08552", cyan: "#a8b5a0", white: "#f0eee6",
+      brightBlack: "#5a463a", brightRed: "#e8956f", brightGreen: "#b9b896", brightYellow: "#e3b894",
+      brightBlue: "#a4b2b2", brightMagenta: "#d39e6a", brightCyan: "#bcc6b6", brightWhite: "#faf9f5",
+    },
+  },
+  mario: {
+    label: "Super Mario", bg: "mario", crt: false, grain: "0.05",
+    vars: { "--accent": "#e52521", "--accent-2": "#fbd000", "--radius": "4px", "--pane-alpha": "0.5" },
+    xterm: {
+      background: "rgba(0,0,0,0)", foreground: "#ffffff", cursor: "#e52521", cursorAccent: "#1a1a2a",
+      selectionBackground: "rgba(229,37,33,0.30)",
+      black: "#3a1d0c", red: "#e52521", green: "#43b047", yellow: "#fbd000",
+      blue: "#049cd8", magenta: "#e54590", cyan: "#5fcde4", white: "#ffffff",
+      brightBlack: "#7a4a2a", brightRed: "#ff5a4a", brightGreen: "#6ed06a", brightYellow: "#ffe24d",
+      brightBlue: "#43b8f0", brightMagenta: "#ff6aa8", brightCyan: "#8ae0f0", brightWhite: "#ffffff",
+    },
+  },
 };
 const THEME_KEYS = Object.keys(THEMES);
 let themeKey = "default";
@@ -120,7 +180,120 @@ function drawPixelArt() {
   const scene = document.body.dataset.bg || "aurora";
   if (scene === "retro") drawSynthwave(W, H, a1, a2);
   else if (scene === "forest") drawForest(W, H, a1, a2);
+  else if (scene === "mono") drawDino(W, H, a1, a2);
+  else if (scene === "ocean") drawOcean(W, H, a1, a2);
+  else if (scene === "ferrari") drawFerrari(W, H, a1, a2);
+  else if (scene === "claude") drawClaude(W, H, a1, a2);
+  else if (scene === "mario") drawMario(W, H, a1, a2);
   else drawAurora(W, H, a1, a2);
+}
+
+// Pixel sprite from a bitmap; chars map to colors (space/'.' = transparent).
+function sprite(bm, ox, oy, s, colors) {
+  for (let r = 0; r < bm.length; r++) {
+    for (let c = 0; c < bm[r].length; c++) {
+      const col = colors[bm[r][c]];
+      if (col) { artCtx.fillStyle = col; artCtx.fillRect(Math.round(ox + c * s), Math.round(oy + r * s), Math.ceil(s), Math.ceil(s)); }
+    }
+  }
+}
+const ART_DINO = [
+  "          XXXXX",
+  "          XXXXX",
+  "          X XXX",
+  "          XXXXX",
+  "          XXX  ",
+  "X         XXX  ",
+  "X         XXXX ",
+  "XX     XXXXXXX ",
+  "XXX    XXXXXXX ",
+  "XXXX   XXXXXX  ",
+  "XXXXXXXXXXXX   ",
+  " XXXXXXXXXXX   ",
+  "  XXXXXXXXX    ",
+  "   XXXXXXX     ",
+  "   XX   XX     ",
+  "   XX   XX     ",
+  "   X    X      ",
+  "   X    X      ",
+];
+const ART_CACTUS = ["  X  ", "  X  ", "X X  ", "X X X", "XXX X", "  XXX", "  X  ", "  X  "];
+const ART_FISH = ["  XXXX  X", " XXXXXX XX", "XEXXXXXXXX", "XEXXXXXXXX", " XXXXXX XX", "  XXXX  X"];
+const ART_CLOUD = ["  XXXX  ", " XXXXXX ", "XXXXXXXX", "XXXXXXXX"];
+const ART_QBLOCK = ["OOOOOOOO", "OYYKKYYO", "OYKYYKYO", "OYYYKYYO", "OYYKYYYO", "OYYYYYYO", "OYYKYYYO", "OOOOOOOO"];
+const ART_CAR = [
+  "      RRRRRR      ",
+  "    RRRRRRRRRR    ",
+  "  RRRGGGGGGRRRR   ",
+  " RRRRRRRRRRRRRRR  ",
+  "RRRRRRRRRRRRRRRRR ",
+  "RRWWRRRRRRRRRWWRR ",
+  " WWWW       WWWW  ",
+];
+
+function drawDino(W, H) {
+  const g = "#cfcfcf", gd = "#8f8f8f", groundY = Math.round(H * 0.8), rng = mulberry32(5);
+  for (let i = 0; i < 5; i++) sprite(ART_CLOUD, rng() * W * 0.9, H * (0.12 + rng() * 0.25), PX * 1.4, { X: rgba("#bdbdbd", 0.45) });
+  for (let x = 0; x < W; x += PX) { blk(x, groundY, PX, PX, g); if ((x / PX) % 7 === 0) blk(x, groundY + PX * 2, PX, PX, gd); }
+  sprite(ART_DINO, W * 0.12, groundY - ART_DINO.length * PX * 1.5, PX * 1.5, { X: g });
+  [0.45, 0.62, 0.82].forEach((fx, i) => { const sc = PX * (1.2 + i * 0.25); sprite(ART_CACTUS, W * fx, groundY - ART_CACTUS.length * sc, sc, { X: gd }); });
+}
+
+function drawOcean(W, H, a1, a2) {
+  for (let i = 0; i < 5; i++) {
+    const x = W * (0.08 + i * 0.2);
+    artCtx.fillStyle = rgba(a1, 0.05);
+    artCtx.beginPath(); artCtx.moveTo(x, 0); artCtx.lineTo(x + W * 0.06, 0); artCtx.lineTo(x + W * 0.16, H); artCtx.lineTo(x + W * 0.05, H); artCtx.closePath(); artCtx.fill();
+  }
+  let rng = mulberry32(7);
+  for (let i = 0; i < 45; i++) { const s = PX * (1 + Math.round(rng() * 2)); blk(rng() * W, rng() * H, s, s, rgba("#bdeeff", 0.1 + rng() * 0.18)); }
+  for (let k = 0; k < 10; k++) {
+    const x = (k + 0.5) * W / 10, h = H * (0.14 + mulberry32(k * 3)() * 0.14);
+    for (let yy = 0; yy < h; yy += PX) blk(x + Math.sin(yy * 0.05 + k) * PX * 2, H - yy, PX, PX, rgba(k % 2 ? a2 : "#2a9d5a", 0.7));
+  }
+  const fishCols = ["#ffb454", "#ff7a7a", "#ffd34d", a2, "#fb923c"];
+  for (let i = 0; i < 6; i++) { const r = mulberry32(i * 11 + 1); sprite(ART_FISH, r() * W * 0.85, H * (0.16 + r() * 0.5), PX * (1.3 + r()), { X: rgba(fishCols[i % fishCols.length], 0.85), E: "#06222e" }); }
+}
+
+function drawFerrari(W, H, a1, a2) {
+  const red = "#ff2800", rng = mulberry32(3);
+  for (let i = 0; i < 30; i++) blk(rng() * W, rng() * H * 0.62, W * (0.05 + rng() * 0.2), PX, rgba("#ffffff", 0.04 + rng() * 0.05));
+  const checkY = Math.round(H * 0.64), cs = PX * 3;
+  for (let x = 0, i = 0; x < W; x += cs, i++) for (let row = 0; row < 2; row++) blk(x, checkY + row * cs, cs, cs, (i + row) % 2 ? rgba("#0a0a0a", 0.5) : rgba("#ffffff", 0.5));
+  blk(0, checkY + cs * 2, W, H, rgba("#141414", 0.6));
+  for (let x = 0; x < W; x += PX * 9) blk(x, Math.round(H * 0.86), PX * 4, PX, rgba(a2, 0.55));
+  const s = PX * 2.2, cw = ART_CAR[0].length * s;
+  sprite(ART_CAR, W * 0.5 - cw / 2, checkY - ART_CAR.length * s + cs * 1.5, s, { R: rgba(red, 0.92), G: "#10101e", W: "#0a0a0a" });
+}
+
+function drawClaude(W, H, a1, a2) {
+  const cx = W * 0.5, cy = H * 0.42, R = Math.min(W, H) * 0.36, rays = 12;
+  for (let i = 0; i < rays; i++) {
+    const ang = (i / rays) * Math.PI * 2 - Math.PI / 2;
+    for (let t = 0.16; t < 1; t += 0.03) { const r = R * t, w = Math.max(PX, PX * (2.4 - t * 1.7)); blk(cx + Math.cos(ang) * r - w / 2, cy + Math.sin(ang) * r - w / 2, w, w, rgba(i % 2 ? a2 : a1, 0.5 * (1 - t * 0.5))); }
+  }
+  blk(cx - PX * 2, cy - PX * 2, PX * 4, PX * 4, rgba("#f0eee6", 0.5));
+  const rng = mulberry32(9);
+  for (let i = 0; i < 55; i++) blk(rng() * W, rng() * H, PX, PX, rgba(i % 2 ? a1 : "#f0eee6", 0.08 + rng() * 0.18));
+}
+
+function drawMario(W, H, a1, a2) {
+  const groundY = Math.round(H * 0.82), rng = mulberry32(2);
+  for (let i = 0; i < 4; i++) sprite(ART_CLOUD, rng() * W * 0.9, H * (0.1 + rng() * 0.2), PX * 1.8, { X: rgba("#ffffff", 0.85) });
+  hills(W, H, H * 0.72, "#2aa636", 0.05, 4);
+  hills(W, H, H * 0.84, "#1f8f2a", 0.04, 8);
+  blk(0, groundY, W, H, rgba("#c84c0c", 0.7));
+  for (let x = 0; x < W; x += PX * 2) blk(x, groundY, PX, PX * 2, rgba("#7a2e08", 0.5));
+  const pipeX = W * 0.78, pipeW = PX * 12, pipeH = H * 0.16, lipH = PX * 5, lipOver = PX * 3;
+  blk(pipeX, groundY - pipeH, pipeW, pipeH, "#2aa12a");
+  blk(pipeX, groundY - pipeH, PX * 3, pipeH, "#74e074");
+  blk(pipeX + pipeW - PX * 2, groundY - pipeH, PX * 2, pipeH, "#1d7a1d");
+  blk(pipeX - lipOver, groundY - pipeH - lipH, pipeW + lipOver * 2, lipH, "#2aa12a");
+  blk(pipeX - lipOver, groundY - pipeH - lipH, PX * 3, lipH, "#74e074");
+  sprite(ART_QBLOCK, W * 0.3, H * 0.4, PX * 2.2, { O: "#3a1d0c", Y: "#fbd000", K: "#7a3b08" });
+  sprite(ART_QBLOCK, W * 0.4, H * 0.4, PX * 2.2, { O: "#3a1d0c", Y: "#fbd000", K: "#7a3b08" });
+  const coinX = W * 0.52, coinY = H * 0.28, cr = PX * 3;
+  for (let y = -cr; y < cr; y += PX) { const half = Math.sqrt(Math.max(0, cr * cr - y * y)); blk(coinX - half, coinY + y, half * 2, PX, rgba("#fbd000", 0.9)); }
 }
 
 function drawAurora(W, H, a1, a2) {
@@ -178,7 +351,7 @@ function drawForest(W, H, a1, a2) {
 // A theme is fully serializable: { label, bg(scene), crt, grain, vars, xterm }.
 // Custom themes are persisted in localStorage and shown alongside the built-ins.
 // ============================================================
-const SCENES = ["aurora", "retro", "forest"];
+const SCENES = ["aurora", "retro", "forest", "mono", "ocean", "ferrari", "claude", "mario"];
 const slugify = (s) => ((s || "theme").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")) || "theme";
 function uniqueId(base) { let id = base, i = 2; while (THEMES[id]) id = base + "-" + i++; return id; }
 
