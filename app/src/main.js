@@ -998,6 +998,42 @@ await listen("aether:error", (e) => {
 await listen("aether:conn-status", (e) => handleConnStatus(e.payload));
 
 // ============================================================
+// Keyboard shortcuts cheat sheet (⌘/ or the Keys button)
+// ============================================================
+const SHORTCUTS = [
+  ["Panes", [
+    ["New split", "⌘D"],
+    ["Close pane", "⌘W"],
+    ["Detach pane (keeps it alive)", "⌘⇧D"],
+    ["Focus next / previous", "⌘] / ⌘["],
+    ["Zoom pane on / off", "⌘↵"],
+    ["Overview", "⌘O"],
+  ]],
+  ["Sessions & appearance", [
+    ["Sessions list", "⌘L"],
+    ["Cycle theme", "⌘Y"],
+    ["Style panel", "⌘,"],
+    ["Show / hide controls", "⌘."],
+    ["Keyboard shortcuts", "⌘/"],
+    ["Close panel / exit overview", "Esc"],
+  ]],
+];
+function renderShortcuts() {
+  document.getElementById("sc-body").innerHTML = SHORTCUTS.map(([title, rows]) =>
+    `<div class="sc-group"><h3>${title}</h3>` +
+    rows.map(([label, keys]) =>
+      `<div class="sc-row"><span>${label}</span><span class="sc-keys">` +
+      keys.split(" / ").map((k) => `<kbd>${k}</kbd>`).join(" ") + `</span></div>`).join("") +
+    `</div>`).join("");
+}
+function setShortcutsOpen(open) {
+  const el = document.getElementById("shortcuts");
+  if (open) renderShortcuts();
+  el.hidden = !open;
+}
+function toggleShortcuts() { setShortcutsOpen(document.getElementById("shortcuts").hidden); }
+
+// ============================================================
 // Controls: toolbar + host picker + appearance + keyboard
 // ============================================================
 document.querySelectorAll("#controls .ctl").forEach((b) => {
@@ -1009,9 +1045,12 @@ document.querySelectorAll("#controls .ctl").forEach((b) => {
     else if (a === "overview") toggleOverview();
     else if (a === "theme") cycleTheme();
     else if (a === "appearance") toggleAppearance();
+    else if (a === "shortcuts") toggleShortcuts();
   });
 });
 document.getElementById("ctl-toggle").addEventListener("click", () => document.body.classList.toggle("controls-hidden"));
+document.getElementById("sc-close").addEventListener("click", () => setShortcutsOpen(false));
+document.getElementById("shortcuts").addEventListener("click", (e) => { if (e.target.id === "shortcuts") setShortcutsOpen(false); });
 
 const closeAppearance = () => setAppearanceOpen(false);
 setAppearanceOpen(false); // start closed and non-tabbable
@@ -1019,9 +1058,10 @@ document.getElementById("ap-close").addEventListener("click", closeAppearance);
 // Capture phase: the focused terminal swallows Escape (it's a valid PTY input),
 // so intercept it before xterm to close the panel when it's open.
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && document.getElementById("appearance").classList.contains("open")) {
-    e.preventDefault(); e.stopPropagation(); closeAppearance();
-  }
+  if (e.key !== "Escape") return;
+  const sc = document.getElementById("shortcuts");
+  if (!sc.hidden) { e.preventDefault(); e.stopPropagation(); setShortcutsOpen(false); return; }
+  if (document.getElementById("appearance").classList.contains("open")) { e.preventDefault(); e.stopPropagation(); closeAppearance(); }
 }, true);
 
 document.getElementById("host-btn").addEventListener("click", (e) => {
@@ -1104,6 +1144,7 @@ window.addEventListener("keydown", (e) => {
     case "o": e.preventDefault(); toggleOverview(); break;
     case ".": e.preventDefault(); document.body.classList.toggle("controls-hidden"); break;
     case ",": e.preventDefault(); toggleAppearance(); break;
+    case "/": e.preventDefault(); toggleShortcuts(); break;
     case "Escape": if (stage.classList.contains("overview")) { e.preventDefault(); toggleOverview(); } break;
   }
 }, true);

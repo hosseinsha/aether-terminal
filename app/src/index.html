@@ -27,6 +27,7 @@
         <button class="ctl" data-act="overview" title="Overview  ⌘O">▦ <span class="lbl">Overview</span></button>
         <button class="ctl" data-act="theme" title="Cycle theme  ⌘Y"><span class="swatch"></span><span id="theme-label" class="lbl">Default</span></button>
         <button class="ctl" data-act="appearance" title="Appearance  ⌘,">✦ <span class="lbl">Style</span></button>
+        <button class="ctl" data-act="shortcuts" title="Keyboard shortcuts  ⌘/">⌨ <span class="lbl">Keys</span></button>
       </div>
       <button id="ctl-toggle" title="Show/hide controls  ⌘.">⋯</button>
     </div>
@@ -84,6 +85,14 @@
 
       <div class="toggle-row">Film grain <div class="switch on" id="t-grain"></div></div>
       <div class="toggle-row">CRT scanlines <div class="switch" id="t-crt"></div></div>
+    </div>
+  </div>
+
+  <div id="shortcuts" hidden>
+    <div class="sc-card">
+      <div class="sc-head"><h2>⌨ KEYBOARD SHORTCUTS</h2><button id="sc-close" title="Close  Esc">✕</button></div>
+      <div class="sc-body" id="sc-body"></div>
+      <div class="sc-hint">Mouse — drag a pane edge to resize · in Overview, drag panes to rearrange · click a pane to focus it</div>
     </div>
   </div>
 
