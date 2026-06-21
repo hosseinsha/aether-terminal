@@ -1,95 +1,197 @@
 //! AETHER macOS app backend.
 //!
-//! Single-binary, single-app experience:
-//!   * **Local** (default) — on launch we spawn the session server *in-process*
-//!     on a per-process Unix socket and connect to it as a client. Zero setup;
-//!     when the app quits the process (and its sessions) end.
-//!   * **Remote** (later) — the exact same client connects to a remote server's
-//!     socket instead. Only the endpoint changes.
+//! Single app, two kinds of connection — both speaking the identical protocol:
+//!   * **local** — an in-process server on a private Unix socket (zero setup;
+//!     ends when the app quits).
+//!   * **remote** — `ssh host aether-server --stdio` (or any program), piped
+//!     over stdin/stdout. Only the transport differs.
 //!
-//! The Rust side is a thin bridge: it forwards Tauri commands to the server as
-//! `ClientMsg`, and re-emits `ServerMsg` to the webview as Tauri events.
+//! Every connection has a string id. Commands carry that id so they route to
+//! the right server; events carry it so the webview can namespace panes.
 
+use std::collections::HashMap;
+use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use aether_proto::{read_msg, write_msg, ClientMsg, ServerMsg};
 use serde::Serialize;
 use tauri::{async_runtime, AppHandle, Emitter, Manager, State};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::process::Command;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-/// Shared state: a channel that funnels client messages to the connection task.
+type Conns = Arc<Mutex<HashMap<String, UnboundedSender<ClientMsg>>>>;
+
 struct AppState {
-    tx: UnboundedSender<ClientMsg>,
+    conns: Conns,
 }
 
 #[derive(Clone, Serialize)]
-struct DataPayload {
-    id: u64,
-    data: Vec<u8>,
-}
-
+struct CreatedPayload { conn: String, id: u64, title: String }
 #[derive(Clone, Serialize)]
-struct ExitedPayload {
-    id: u64,
-    code: Option<i32>,
-}
-
+struct DataPayload { conn: String, id: u64, data: Vec<u8> }
 #[derive(Clone, Serialize)]
-struct ErrorPayload {
-    message: String,
-}
+struct ExitedPayload { conn: String, id: u64, code: Option<i32> }
+#[derive(Clone, Serialize)]
+struct ErrorPayload { conn: String, message: String }
+#[derive(Clone, Serialize)]
+struct ConnStatus { id: String, status: String, message: Option<String> }
 
-// ---- Tauri commands (frontend -> server) -----------------------------------
+// ---- Tauri commands (frontend -> a specific connection) --------------------
 
-#[tauri::command]
-fn create_session(state: State<AppState>, cols: u16, rows: u16) {
-    let _ = state.tx.send(ClientMsg::CreateSession { cols, rows, shell: None });
-}
-
-#[tauri::command]
-fn attach(state: State<AppState>, id: u64) {
-    let _ = state.tx.send(ClientMsg::Attach { id });
-}
-
-#[tauri::command]
-fn input(state: State<AppState>, id: u64, data: Vec<u8>) {
-    let _ = state.tx.send(ClientMsg::Input { id, data });
+fn send(state: &AppState, conn: &str, msg: ClientMsg) {
+    if let Some(tx) = state.conns.lock().unwrap().get(conn) {
+        let _ = tx.send(msg);
+    }
 }
 
 #[tauri::command]
-fn resize(state: State<AppState>, id: u64, cols: u16, rows: u16) {
-    let _ = state.tx.send(ClientMsg::Resize { id, cols, rows });
+fn create_session(state: State<AppState>, conn: String, cols: u16, rows: u16) {
+    send(&state, &conn, ClientMsg::CreateSession { cols, rows, shell: None });
 }
-
 #[tauri::command]
-fn close_session(state: State<AppState>, id: u64) {
-    let _ = state.tx.send(ClientMsg::CloseSession { id });
+fn attach(state: State<AppState>, conn: String, id: u64) {
+    send(&state, &conn, ClientMsg::Attach { id });
+}
+#[tauri::command]
+fn input(state: State<AppState>, conn: String, id: u64, data: Vec<u8>) {
+    send(&state, &conn, ClientMsg::Input { id, data });
+}
+#[tauri::command]
+fn resize(state: State<AppState>, conn: String, id: u64, cols: u16, rows: u16) {
+    send(&state, &conn, ClientMsg::Resize { id, cols, rows });
+}
+#[tauri::command]
+fn close_session(state: State<AppState>, conn: String, id: u64) {
+    send(&state, &conn, ClientMsg::CloseSession { id });
 }
 
-// ---- Server -> webview -----------------------------------------------------
+/// Open a remote (or otherwise out-of-process) connection by spawning a program
+/// that speaks the protocol over stdin/stdout. For SSH the frontend passes
+/// program="ssh", args=["user@host", "aether-server --stdio"].
+#[tauri::command]
+async fn connect_remote(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    program: String,
+    args: Vec<String>,
+) -> Result<(), String> {
+    let _ = app.emit("aether:conn-status", ConnStatus { id: id.clone(), status: "connecting".into(), message: None });
 
-fn dispatch(app: &AppHandle, msg: ServerMsg) {
+    let mut child = Command::new(&program)
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawn {program}: {e}"))?;
+
+    let wr = child.stdin.take().ok_or("no stdin")?;
+    let rd = child.stdout.take().ok_or("no stdout")?;
+    let stderr = child.stderr.take().ok_or("no stderr")?;
+
+    let conns = state.conns.clone();
+    let rx = register_connection(&conns, &id);
+    pump_connection(app.clone(), conns.clone(), id.clone(), rd, wr, rx);
+
+    // Surface remote stderr (e.g. "aether-server: command not found").
+    let app_e = app.clone();
+    let id_e = id.clone();
+    async_runtime::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut s = stderr;
+        let mut buf = Vec::new();
+        let _ = s.read_to_end(&mut buf).await;
+        if !buf.is_empty() {
+            let _ = app_e.emit("aether:conn-status", ConnStatus {
+                id: id_e,
+                status: "stderr".into(),
+                message: Some(String::from_utf8_lossy(&buf).trim().to_string()),
+            });
+        }
+    });
+
+    // Watch for the connection dropping.
+    let app_c = app.clone();
+    let id_c = id.clone();
+    let conns_c = conns.clone();
+    async_runtime::spawn(async move {
+        let status = child.wait().await;
+        conns_c.lock().unwrap().remove(&id_c);
+        let code = status.ok().and_then(|s| s.code());
+        let _ = app_c.emit("aether:conn-status", ConnStatus {
+            id: id_c,
+            status: "closed".into(),
+            message: code.map(|c| format!("exit {c}")),
+        });
+    });
+
+    let _ = app.emit("aether:conn-status", ConnStatus { id, status: "connected".into(), message: None });
+    Ok(())
+}
+
+// ---- connection plumbing ---------------------------------------------------
+
+fn dispatch(app: &AppHandle, conn: &str, msg: ServerMsg) {
+    let conn = conn.to_string();
     match msg {
         ServerMsg::Created(info) => {
-            let _ = app.emit("aether:created", info);
+            let _ = app.emit("aether:created", CreatedPayload { conn, id: info.id, title: info.title });
         }
         ServerMsg::Snapshot { id, data } => {
-            let _ = app.emit("aether:snapshot", DataPayload { id, data });
+            let _ = app.emit("aether:snapshot", DataPayload { conn, id, data });
         }
         ServerMsg::Output { id, data } => {
-            let _ = app.emit("aether:output", DataPayload { id, data });
+            let _ = app.emit("aether:output", DataPayload { conn, id, data });
         }
         ServerMsg::Exited { id, code } => {
-            let _ = app.emit("aether:exited", ExitedPayload { id, code });
+            let _ = app.emit("aether:exited", ExitedPayload { conn, id, code });
         }
-        ServerMsg::Sessions(list) => {
-            let _ = app.emit("aether:sessions", list);
-        }
+        ServerMsg::Sessions(_) => {}
         ServerMsg::Error { message } => {
-            let _ = app.emit("aether:error", ErrorPayload { message });
+            let _ = app.emit("aether:error", ErrorPayload { conn, message });
         }
     }
+}
+
+/// Register a connection's command channel *synchronously* so commands issued
+/// before the transport is ready (e.g. the first session at boot) buffer rather
+/// than getting dropped. Returns the receiver to hand to `pump_connection`.
+fn register_connection(conns: &Conns, id: &str) -> UnboundedReceiver<ClientMsg> {
+    let (tx, rx) = unbounded_channel::<ClientMsg>();
+    conns.lock().unwrap().insert(id.to_string(), tx);
+    rx
+}
+
+/// Pump a connection's streams once the transport is ready: drain queued
+/// commands to the server, and dispatch server messages to the webview.
+fn pump_connection<R, W>(app: AppHandle, conns: Conns, id: String, rd: R, wr: W, mut rx: UnboundedReceiver<ClientMsg>)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    async_runtime::spawn(async move {
+        let mut wr = wr;
+        while let Some(msg) = rx.recv().await {
+            if write_msg(&mut wr, &msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    async_runtime::spawn(async move {
+        let mut rd = rd;
+        loop {
+            match read_msg::<_, ServerMsg>(&mut rd).await {
+                Ok(msg) => dispatch(&app, &id, msg),
+                Err(_) => break,
+            }
+        }
+        conns.lock().unwrap().remove(&id);
+    });
 }
 
 async fn connect_with_retry(path: std::path::PathBuf) -> std::io::Result<UnixStream> {
@@ -106,8 +208,6 @@ async fn connect_with_retry(path: std::path::PathBuf) -> std::io::Result<UnixStr
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let handle = app.handle().clone();
-
             // Native macOS frosted-glass behind the translucent UI.
             #[cfg(target_os = "macos")]
             {
@@ -122,10 +222,17 @@ pub fn run() {
                 }
             }
 
-            // Per-process socket so multiple app instances don't collide.
+            let conns: Conns = Arc::new(Mutex::new(HashMap::new()));
+            app.manage(AppState { conns: conns.clone() });
+
+            let handle = app.handle().clone();
             let sock = std::env::temp_dir().join(format!("aether-{}.sock", std::process::id()));
 
-            // 1) Embedded local server.
+            // Register the local connection synchronously so the first session
+            // (created at boot) buffers until the socket is ready.
+            let rx_local = register_connection(&conns, "local");
+
+            // Embedded local server.
             let sock_srv = sock.clone();
             async_runtime::spawn(async move {
                 if let Err(e) = aether_server::serve(&sock_srv).await {
@@ -133,35 +240,15 @@ pub fn run() {
                 }
             });
 
-            // 2) Client connection: commands in, events out.
-            let (tx, mut rx) = unbounded_channel::<ClientMsg>();
-            app.manage(AppState { tx });
-
+            // Connect to the embedded server, then pump the local connection.
+            let conns_local = conns.clone();
             async_runtime::spawn(async move {
-                let stream = match connect_with_retry(sock).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("could not connect to embedded server: {e}");
-                        return;
+                match connect_with_retry(sock).await {
+                    Ok(stream) => {
+                        let (rd, wr) = stream.into_split();
+                        pump_connection(handle, conns_local, "local".into(), rd, wr, rx_local);
                     }
-                };
-                let (mut rd, mut wr) = stream.into_split();
-
-                // Writer: drain command channel to the server.
-                async_runtime::spawn(async move {
-                    while let Some(msg) = rx.recv().await {
-                        if write_msg(&mut wr, &msg).await.is_err() {
-                            break;
-                        }
-                    }
-                });
-
-                // Reader: server messages -> webview events.
-                loop {
-                    match read_msg::<_, ServerMsg>(&mut rd).await {
-                        Ok(msg) => dispatch(&handle, msg),
-                        Err(_) => break,
-                    }
+                    Err(e) => eprintln!("could not connect to embedded server: {e}"),
                 }
             });
 
@@ -172,7 +259,8 @@ pub fn run() {
             attach,
             input,
             resize,
-            close_session
+            close_session,
+            connect_remote
         ])
         .run(tauri::generate_context!())
         .expect("error while running AETHER");

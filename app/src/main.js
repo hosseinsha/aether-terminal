@@ -1,8 +1,9 @@
 // AETHER compositor — live xterm panes over the session protocol.
 //
-// Layout is a BSP split tree: each leaf is a pane, each split node has a
-// direction + ratio, so dividers can be dragged to resize. Depth-of-field
-// focus, animated reflow, themes and an overview canvas come from the prototype.
+// Panes are grouped by *connection* (a server). "local" is the in-process
+// server; remote connections are ssh-to-aether-server. Each connection has its
+// own BSP layout tree, panes and focus — switching connection swaps the
+// visible workspace. Only the transport differs between local and remote.
 
 function showErr(msg) {
   const d = document.createElement("div");
@@ -13,11 +14,19 @@ function showErr(msg) {
 window.addEventListener("error", (e) => showErr("JS: " + (e.message || e.error) + " @ " + (e.filename || "").split("/").pop() + ":" + e.lineno));
 window.addEventListener("unhandledrejection", (e) => showErr("RJ: " + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason))));
 
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4500);
+}
+
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 // ============================================================
-// Themes — drive both the chrome (CSS vars) and each xterm palette.
+// Themes
 // ============================================================
 const THEMES = {
   default: {
@@ -69,7 +78,7 @@ function applyTheme(key) {
   document.body.dataset.bg = t.bg;
   rootStyle.setProperty("--grain", t.grain);
   document.body.classList.toggle("crt", t.crt);
-  panes.forEach((p) => { p.term.options.theme = t.xterm; });
+  allPanes().forEach((p) => { p.term.options.theme = t.xterm; });
   document.getElementById("theme-label").textContent = t.label;
   syncPanel(t);
 }
@@ -92,7 +101,7 @@ function syncPanel(t) {
 function toggleAppearance() { document.getElementById("appearance").classList.toggle("open"); }
 
 // ============================================================
-// State
+// Connections + state
 // ============================================================
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("canvas");
@@ -100,20 +109,23 @@ const dividers = document.createElement("div");
 dividers.id = "dividers";
 canvas.appendChild(dividers);
 
-let panes = [];        // { id, el, term, fit, sessionId, title }
-let root = null;       // BSP tree: {type:"leaf",pane} | {type:"split",dir,ratio,a,b,_rect}
-let focusId = null;
+// conn = { id, label, root, panes:[], focusId, pending:[], status }
+const conns = new Map();
+conns.set("local", { id: "local", label: "local", root: null, panes: [], focusId: null, pending: [], status: "connected" });
+let activeConn = "local";
+
 let maximized = false;
 let uid = 1;
-const pending = [];
-const bySession = new Map();
-let dragState = null;   // divider resize
-let rearrange = null;   // overview rearrange
+const bySession = new Map();   // `${conn}/${sessionId}` -> pane
+let dragState = null;
+let rearrange = null;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const cur = () => conns.get(activeConn);
+function allPanes() { const a = []; conns.forEach((c) => c.panes.forEach((p) => a.push(p))); return a; }
 
 // ============================================================
-// Tree helpers
+// Tree helpers (operate on a connection's root)
 // ============================================================
 function leaves(node, acc = []) {
   if (!node) return acc;
@@ -133,26 +145,29 @@ function findParent(node, target, parent = null) {
 }
 
 // ============================================================
-// Layout — walk the tree, place panes, draw dividers
+// Layout
 // ============================================================
 function layout() {
   dividers.innerHTML = "";
-  if (!root) return;
+  allPanes().forEach((p) => { p.el.style.display = p.conn === activeConn ? "" : "none"; });
+
+  const c = cur();
+  if (!c || !c.root) return;
 
   const place = (node, x, y, w, h) => {
     if (node.type === "leaf") {
       const p = node.pane;
       let [X, Y, W, H] = [x, y, w, h];
-      if (maximized && p.id === focusId) { X = 0; Y = 0; W = 100; H = 100; }
-      if (maximized && p.id !== focusId) { p.el.style.opacity = "0"; p.el.style.pointerEvents = "none"; }
+      if (maximized && p.id === c.focusId) { X = 0; Y = 0; W = 100; H = 100; }
+      if (maximized && p.id !== c.focusId) { p.el.style.opacity = "0"; p.el.style.pointerEvents = "none"; }
       else { p.el.style.opacity = ""; p.el.style.pointerEvents = ""; }
       const g = "var(--gap)";
       p.el.style.left = `calc(${X}% + ${g} / 2)`;
       p.el.style.top = `calc(${Y}% + ${g} / 2)`;
       p.el.style.width = `calc(${W}% - ${g})`;
       p.el.style.height = `calc(${H}% - ${g})`;
-      p.el.classList.toggle("active", p.id === focusId);
-      p.el.classList.toggle("inactive", p.id !== focusId);
+      p.el.classList.toggle("active", p.id === c.focusId);
+      p.el.classList.toggle("inactive", p.id !== c.focusId);
       return;
     }
     node._rect = { x, y, w, h };
@@ -168,9 +183,9 @@ function layout() {
       if (!maximized) addDivider(node, "v", y + ha, x, w);
     }
   };
-  place(root, 0, 0, 100, 100);
+  place(c.root, 0, 0, 100, 100);
 
-  const fp = panes.find((p) => p.id === focusId);
+  const fp = c.panes.find((p) => p.id === c.focusId);
   if (fp) fp.term.focus();
 }
 
@@ -203,7 +218,6 @@ function makeTerminal() {
   term.loadAddon(fit);
   return { term, fit };
 }
-
 function attachWebgl(term) {
   try {
     const webgl = new WebglAddon.WebglAddon();
@@ -211,14 +225,14 @@ function attachWebgl(term) {
     term.loadAddon(webgl);
   } catch (_) { /* DOM renderer remains */ }
 }
-
 function fitPane(p) {
   try { p.fit.fit(); } catch (_) {}
-  if (p.sessionId !== null) invoke("resize", { id: p.sessionId, cols: p.term.cols, rows: p.term.rows });
+  if (p.sessionId !== null) invoke("resize", { conn: p.conn, id: p.sessionId, cols: p.term.cols, rows: p.term.rows });
 }
 
 function addPane() {
-  if (panes.length >= 8) return;
+  const c = cur();
+  if (c.panes.length >= 8) return;
   const id = uid++;
   const el = document.createElement("div");
   el.className = "pane opening";
@@ -229,7 +243,7 @@ function addPane() {
     '<div class="pane-body"><div class="term-mount"></div></div>';
 
   const { term, fit } = makeTerminal();
-  const p = { id, el, term, fit, sessionId: null, title: "shell" };
+  const p = { id, el, term, fit, sessionId: null, title: "shell", conn: activeConn };
 
   el.addEventListener("mousedown", (e) => {
     if (e.target.classList.contains("pane-close")) { e.stopPropagation(); closePane(id); return; }
@@ -244,68 +258,70 @@ function addPane() {
   term.open(el.querySelector(".term-mount"));
   attachWebgl(term);
   term.onData((d) => {
-    if (p.sessionId !== null) invoke("input", { id: p.sessionId, data: Array.from(new TextEncoder().encode(d)) });
+    if (p.sessionId !== null) invoke("input", { conn: p.conn, id: p.sessionId, data: Array.from(new TextEncoder().encode(d)) });
   });
 
-  // Insert into the tree: split the currently focused leaf.
   const leaf = { type: "leaf", pane: p };
-  if (!root) {
-    root = leaf;
+  if (!c.root) {
+    c.root = leaf;
   } else {
-    const target = findLeaf(root, focusId) || leaves(root).pop();
+    const target = findLeaf(c.root, c.focusId) || leaves(c.root).pop();
     const r = target.pane.el.getBoundingClientRect();
     const dir = r.width >= r.height ? "h" : "v";
-    const parent = findParent(root, target);
+    const parent = findParent(c.root, target);
     const split = { type: "split", dir, ratio: 0.5, a: target, b: leaf };
-    if (!parent) root = split;
+    if (!parent) c.root = split;
     else if (parent.a === target) parent.a = split;
     else parent.b = split;
   }
 
-  panes.push(p);
-  focusId = id;
+  c.panes.push(p);
+  c.focusId = id;
   maximized = false;
   requestAnimationFrame(() => el.classList.remove("opening"));
   layout();
 
   setTimeout(() => {
     fitPane(p);
-    invoke("create_session", { cols: p.term.cols || 80, rows: p.term.rows || 24 });
-    pending.push(p);
+    invoke("create_session", { conn: p.conn, cols: p.term.cols || 80, rows: p.term.rows || 24 });
+    c.pending.push(p);
   }, 30);
 }
 
 function closePane(id) {
-  if (panes.length <= 1) return;
-  const idx = panes.findIndex((p) => p.id === id);
+  const c = cur();
+  if (c.panes.length <= 1) return;
+  const idx = c.panes.findIndex((p) => p.id === id);
   if (idx < 0) return;
-  const p = panes[idx];
+  const p = c.panes[idx];
 
-  const leaf = findLeaf(root, id);
-  const parent = findParent(root, leaf);
+  const leaf = findLeaf(c.root, id);
+  const parent = findParent(c.root, leaf);
   if (!parent) {
-    root = null;
+    c.root = null;
   } else {
     const sibling = parent.a === leaf ? parent.b : parent.a;
-    const grand = findParent(root, parent);
-    if (!grand) root = sibling;
+    const grand = findParent(c.root, parent);
+    if (!grand) c.root = sibling;
     else if (grand.a === parent) grand.a = sibling;
     else grand.b = sibling;
   }
 
-  if (p.sessionId !== null) { invoke("close_session", { id: p.sessionId }); bySession.delete(p.sessionId); }
-  panes.splice(idx, 1);
+  if (p.sessionId !== null) { invoke("close_session", { conn: p.conn, id: p.sessionId }); bySession.delete(p.conn + "/" + p.sessionId); }
+  c.panes.splice(idx, 1);
   p.el.classList.add("closing");
   setTimeout(() => { p.el.remove(); try { p.term.dispose(); } catch (_) {} }, 420);
-  if (focusId === id) focusId = panes[Math.min(idx, panes.length - 1)].id;
+  if (c.focusId === id) c.focusId = c.panes[Math.min(idx, c.panes.length - 1)].id;
   maximized = false;
   layout();
 }
 
-function setFocus(id) { focusId = id; maximized = false; layout(); }
+function setFocus(id) { cur().focusId = id; maximized = false; layout(); }
 function cycleFocus(dir) {
-  const idx = panes.findIndex((p) => p.id === focusId);
-  setFocus(panes[(idx + dir + panes.length) % panes.length].id);
+  const c = cur();
+  const idx = c.panes.findIndex((p) => p.id === c.focusId);
+  if (idx < 0 || c.panes.length === 0) return;
+  setFocus(c.panes[(idx + dir + c.panes.length) % c.panes.length].id);
 }
 function toggleMax() { maximized = !maximized; layout(); }
 function toggleOverview() { maximized = false; stage.classList.toggle("overview"); layout(); }
@@ -338,11 +354,11 @@ function onDividerUp() {
   window.removeEventListener("mousemove", onDividerMove);
   window.removeEventListener("mouseup", onDividerUp);
   dragState = null;
-  panes.forEach(fitPane);
+  cur().panes.forEach(fitPane);
 }
 
 // ============================================================
-// Overview drag-to-rearrange (swap two panes' tree slots)
+// Overview drag-to-rearrange
 // ============================================================
 function startRearrange(e, id) {
   e.preventDefault();
@@ -368,61 +384,130 @@ function onRearrangeUp(e) {
   const r = rearrange;
   rearrange = null;
   if (!r) return;
-  if (!r.moved) { toggleOverview(); setFocus(r.id); return; } // a plain click = dive in
+  if (!r.moved) { toggleOverview(); setFocus(r.id); return; }
   const target = paneUnder(e.clientX, e.clientY);
   if (target && target.dataset.id !== String(r.id)) {
+    const root = cur().root;
     const la = findLeaf(root, r.id), lb = findLeaf(root, parseInt(target.dataset.id));
     if (la && lb) { const tmp = la.pane; la.pane = lb.pane; lb.pane = tmp; layout(); }
   }
 }
 
 // ============================================================
+// Host picker (connections)
+// ============================================================
+function updateHostUI() {
+  const c = cur();
+  document.getElementById("host-label").textContent = c ? c.label : activeConn;
+  const btn = document.getElementById("host-btn");
+  btn.className = "";
+  if (activeConn !== "local") btn.classList.add("remote");
+  if (c && c.status) btn.classList.add(c.status);
+}
+function buildHostMenu() {
+  const m = document.getElementById("host-menu");
+  m.innerHTML = "";
+  conns.forEach((c) => {
+    const it = document.createElement("div");
+    it.className = "host-item" + (c.id === activeConn ? " active" : "");
+    it.innerHTML = `<span class="hdot ${c.status || ""}"></span><span>${c.label}</span>`;
+    it.onclick = () => { switchConn(c.id); closeHostMenu(); };
+    m.appendChild(it);
+  });
+  const sep = document.createElement("div"); sep.className = "host-sep"; m.appendChild(sep);
+  const add = document.createElement("div"); add.className = "host-add";
+  add.innerHTML = '<input type="text" placeholder="user@host" id="host-input"><button id="host-go">Connect</button>';
+  m.appendChild(add);
+  const hint = document.createElement("div"); hint.className = "host-hint";
+  hint.textContent = "ssh · needs aether-server on the remote PATH";
+  m.appendChild(hint);
+  const go = () => { const v = add.querySelector("#host-input").value.trim(); if (v) { connectRemote(v); closeHostMenu(); } };
+  add.querySelector("#host-go").onclick = go;
+  add.querySelector("#host-input").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); e.stopPropagation(); });
+}
+function openHostMenu() { buildHostMenu(); document.getElementById("host-menu").classList.add("open"); }
+function closeHostMenu() { document.getElementById("host-menu").classList.remove("open"); }
+
+function switchConn(id) {
+  if (!conns.has(id)) return;
+  activeConn = id;
+  maximized = false;
+  layout();
+  updateHostUI();
+  const c = cur();
+  if (c.panes.length === 0 && (id === "local" || c.status === "connected")) addPane();
+}
+function connectRemote(host) {
+  const id = host;
+  if (conns.has(id)) { switchConn(id); return; }
+  conns.set(id, { id, label: host, root: null, panes: [], focusId: null, pending: [], status: "connecting" });
+  invoke("connect_remote", { id, program: "ssh", args: [host, "aether-server --stdio"] });
+  switchConn(id);
+}
+function handleConnStatus({ id, status, message }) {
+  const c = conns.get(id);
+  if (c) c.status = status;
+  updateHostUI();
+  if (status === "connected" && c && activeConn === id && c.panes.length === 0) addPane();
+  if ((status === "stderr" || status === "closed") && message) toast(id + ": " + message);
+}
+
+// ============================================================
 // Server -> panes
 // ============================================================
 await listen("aether:created", (e) => {
-  const info = e.payload;
-  const p = pending.shift();
+  const { conn, id, title } = e.payload;
+  const c = conns.get(conn);
+  if (!c) return;
+  const p = c.pending.shift();
   if (!p) return;
-  p.sessionId = info.id;
-  p.title = info.title;
-  p.el.querySelector(".pane-title").textContent = info.title;
-  bySession.set(info.id, p);
-  invoke("attach", { id: info.id });
+  p.sessionId = id;
+  p.title = title;
+  p.el.querySelector(".pane-title").textContent = title;
+  bySession.set(conn + "/" + id, p);
+  invoke("attach", { conn, id });
   fitPane(p);
 });
 await listen("aether:snapshot", (e) => {
-  const p = bySession.get(e.payload.id);
+  const p = bySession.get(e.payload.conn + "/" + e.payload.id);
   if (p) p.term.write(new Uint8Array(e.payload.data));
 });
 await listen("aether:output", (e) => {
-  const p = bySession.get(e.payload.id);
+  const p = bySession.get(e.payload.conn + "/" + e.payload.id);
   if (p) p.term.write(new Uint8Array(e.payload.data));
 });
 await listen("aether:exited", (e) => {
-  const p = bySession.get(e.payload.id);
+  const p = bySession.get(e.payload.conn + "/" + e.payload.id);
   if (p) p.term.write("\r\n\x1b[2m[process exited — ⌘W to close]\x1b[0m\r\n");
 });
 await listen("aether:error", (e) => {
-  const p = panes.find((x) => x.id === focusId);
-  if (p) p.term.write("\r\n\x1b[31m[aether] " + e.payload.message + "\x1b[0m\r\n");
+  toast((e.payload.conn || "") + ": " + e.payload.message);
 });
+await listen("aether:conn-status", (e) => handleConnStatus(e.payload));
 
 // ============================================================
-// Controls: toolbar + appearance panel + keyboard
+// Controls: toolbar + host picker + appearance + keyboard
 // ============================================================
 document.querySelectorAll("#controls .ctl").forEach((b) => {
   b.addEventListener("click", () => {
     const a = b.dataset.act;
     if (a === "split") addPane();
-    else if (a === "close") closePane(focusId);
+    else if (a === "close") closePane(cur().focusId);
     else if (a === "max") toggleMax();
     else if (a === "overview") toggleOverview();
     else if (a === "theme") cycleTheme();
     else if (a === "appearance") toggleAppearance();
   });
 });
-document.getElementById("ctl-toggle").addEventListener("click", () => {
-  document.body.classList.toggle("controls-hidden");
+document.getElementById("ctl-toggle").addEventListener("click", () => document.body.classList.toggle("controls-hidden"));
+
+document.getElementById("host-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const m = document.getElementById("host-menu");
+  m.classList.contains("open") ? closeHostMenu() : openHostMenu();
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#host-wrap")) closeHostMenu();
 });
 
 const ACCENTS = [
@@ -430,7 +515,6 @@ const ACCENTS = [
   { a: "#9ece6a", b: "#7dcfff" }, { a: "#f7768e", b: "#ff9e64" },
   { a: "#ff9e64", b: "#e0af68" }, { a: "#7dcfff", b: "#9ece6a" },
 ];
-
 const apThemes = document.getElementById("ap-themes");
 Object.entries(THEMES).forEach(([key, t]) => {
   const card = document.createElement("div");
@@ -442,7 +526,6 @@ Object.entries(THEMES).forEach(([key, t]) => {
   card.onclick = () => applyTheme(key);
   apThemes.appendChild(card);
 });
-
 const apAccents = document.getElementById("ap-accents");
 ACCENTS.forEach((c) => {
   const s = document.createElement("div");
@@ -457,18 +540,16 @@ ACCENTS.forEach((c) => {
   };
   apAccents.appendChild(s);
 });
-
 function bindRange(rid, vid, fmt, apply) {
   const r = document.getElementById(rid), v = document.getElementById(vid);
   r.addEventListener("input", () => { v.textContent = fmt(apply(r.value)); });
 }
-bindRange("r-gap", "v-gap", (v) => v + "px", (v) => { rootStyle.setProperty("--gap", v + "px"); panes.forEach(fitPane); return v; });
+bindRange("r-gap", "v-gap", (v) => v + "px", (v) => { rootStyle.setProperty("--gap", v + "px"); cur().panes.forEach(fitPane); return v; });
 bindRange("r-radius", "v-radius", (v) => v + "px", (v) => { rootStyle.setProperty("--radius", v + "px"); return v; });
 bindRange("r-alpha", "v-alpha", (v) => v, (v) => { const a = (v / 100).toFixed(2); rootStyle.setProperty("--pane-alpha", a); return a; });
 bindRange("r-dim", "v-dim", (v) => v, (v) => { const a = (v / 100).toFixed(2); rootStyle.setProperty("--inactive-opacity", a); return a; });
 bindRange("r-blur", "v-blur", (v) => v + "px", (v) => { rootStyle.setProperty("--inactive-blur", v + "px"); return v; });
 bindRange("r-sat", "v-sat", (v) => v, (v) => { const a = (v / 100).toFixed(2); rootStyle.setProperty("--inactive-sat", a); return a; });
-
 function bindToggle(id, on, off) {
   const el = document.getElementById(id);
   el.addEventListener("click", () => { el.classList.toggle("on"); el.classList.contains("on") ? on() : off(); });
@@ -480,7 +561,7 @@ window.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
   switch (e.key) {
     case "d": e.preventDefault(); addPane(); break;
-    case "w": e.preventDefault(); closePane(focusId); break;
+    case "w": e.preventDefault(); closePane(cur().focusId); break;
     case "]": e.preventDefault(); cycleFocus(1); break;
     case "[": e.preventDefault(); cycleFocus(-1); break;
     case "Enter": e.preventDefault(); toggleMax(); break;
@@ -495,11 +576,12 @@ window.addEventListener("keydown", (e) => {
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => panes.forEach(fitPane), 80);
+  resizeTimer = setTimeout(() => cur().panes.forEach(fitPane), 80);
 });
 
 // ============================================================
 // Boot
 // ============================================================
 applyTheme("default");
+updateHostUI();
 addPane();

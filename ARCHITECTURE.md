@@ -71,13 +71,31 @@ cargo run --bin aether-server
 cargo run --bin aether-smoke      # expect: hello-from-aether
 ```
 
+## Connections (local + remote)
+
+The app's Rust side is a thin bridge that can hold several connections at once,
+each identified by a string id. Commands carry that id (so they route to the
+right server) and events carry it (so the webview namespaces panes per host).
+
+- **local** — the embedded in-process server over a private Unix socket.
+- **remote** — `ssh user@host aether-server --stdio`: the server's `--stdio`
+  mode serves the protocol over stdin/stdout, so SSH just pipes the same bytes.
+  Adding a host in the picker spawns that ssh child and wires it like any other
+  connection. (Requires `aether-server` on the remote PATH.)
+
+Each connection's command channel is registered synchronously, so a session
+created before the transport finishes connecting buffers rather than dropping.
+
 ## Roadmap
 
 - [x] Protocol + headless server + PTY/grid/persistence foundation
-- [ ] Tauri app shell (macOS) with the thin proto↔webview client
-- [ ] `xterm.js` panes wired to `Snapshot`/`Output`/`Input`/`Resize`
-- [ ] Port the CSS compositor (depth-of-field, reflow, themes) onto live panes
-- [ ] Detach/reattach UX + session list
-- [ ] Remote transport (TCP+TLS / SSH) + host picker
+- [x] Tauri app shell (macOS) with the thin proto↔webview client
+- [x] `xterm.js` panes wired to `Snapshot`/`Output`/`Input`/`Resize`
+- [x] Port the CSS compositor (depth-of-field, reflow, themes) onto live panes
+- [x] macOS vibrancy + WebGL renderer
+- [x] Live appearance panel (gap/radius/translucency/depth-of-field/accent)
+- [x] BSP layout: drag-to-resize splits + overview drag-to-rearrange
+- [x] Remote transport (SSH via `--stdio`) + host picker
+- [ ] Detach/reattach UX + session list (sessions persist on remote servers)
 - [ ] Scrollback streaming beyond the visible screen
 - [ ] Evaluate native `wgpu` renderer if the webview hits a perf/shader ceiling

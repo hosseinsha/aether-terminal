@@ -22,7 +22,8 @@ use std::sync::{Arc, Mutex};
 use aether_proto::{read_msg, write_msg, ClientMsg, ServerMsg, SessionId, SessionInfo};
 use anyhow::Result;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::UnixListener;
 use tokio::sync::{broadcast, mpsc};
 
 /// What the per-session reader thread fans out to attached clients.
@@ -168,18 +169,31 @@ pub async fn serve(socket_path: impl AsRef<Path>) -> Result<()> {
 
     loop {
         let (stream, _) = listener.accept().await?;
+        let (rd, wr) = stream.into_split();
         let sessions = sessions.clone();
         let next_id = next_id.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_conn(stream, sessions, next_id).await {
+            if let Err(e) = handle_conn(rd, wr, sessions, next_id).await {
                 eprintln!("connection ended: {e}");
             }
         });
     }
 }
 
-async fn handle_conn(stream: UnixStream, sessions: Sessions, next_id: Arc<AtomicU64>) -> Result<()> {
-    let (mut rd, wr) = stream.into_split();
+/// Serve a single connection over stdin/stdout. Used for remote hosts: a client
+/// runs `ssh host aether-server --stdio` and speaks the protocol over the pipe.
+pub async fn serve_stdio() -> Result<()> {
+    let sessions: Sessions = Arc::new(Mutex::new(HashMap::new()));
+    let next_id = Arc::new(AtomicU64::new(1));
+    handle_conn(tokio::io::stdin(), tokio::io::stdout(), sessions, next_id).await
+}
+
+async fn handle_conn<R, W>(rd: R, wr: W, sessions: Sessions, next_id: Arc<AtomicU64>) -> Result<()>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let mut rd = rd;
 
     // A single writer task owns the socket write half; everything that needs to
     // send to this client funnels ServerMsgs through `tx`.

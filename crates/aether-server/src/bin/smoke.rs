@@ -1,32 +1,50 @@
 //! End-to-end smoke test for the session server.
 //!
-//! Connects over the Unix socket, creates a session, attaches, types a command
-//! into the real shell, and prints whatever the PTY sends back. Proves the full
-//! pipe (socket -> PTY -> grid mirror -> broadcast -> client) works without
-//! needing the GUI yet.
+//!   cargo run --bin aether-smoke            # via the Unix socket (run server first)
+//!   cargo run --bin aether-smoke -- --stdio # spawns `aether-server --stdio` and pipes to it
 //!
-//! Run the server first (`cargo run --bin aether-server`), then this in another
-//! terminal (`cargo run --bin aether-smoke`). Expect to see `hello-from-aether`.
+//! Either way it creates a session, attaches, types a command into the real
+//! shell, and prints what comes back. Expect to see `hello-from-aether`.
 
+use std::process::Stdio;
 use std::time::Duration;
 
 use aether_proto::{read_msg, write_msg, ClientMsg, ServerMsg};
 use anyhow::Result;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
+use tokio::process::Command;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let path = std::env::temp_dir().join("aether-server.sock");
-    let stream = UnixStream::connect(&path).await?;
-    let (mut rd, mut wr) = stream.into_split();
+    if std::env::args().any(|a| a == "--stdio") {
+        let exe = std::env::current_exe()?
+            .parent()
+            .unwrap()
+            .join("aether-server");
+        let mut child = Command::new(exe)
+            .arg("--stdio")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let wr = child.stdin.take().unwrap();
+        let rd = child.stdout.take().unwrap();
+        drive(rd, wr).await
+    } else {
+        let path = std::env::temp_dir().join("aether-server.sock");
+        let stream = UnixStream::connect(&path).await?;
+        let (rd, wr) = stream.into_split();
+        drive(rd, wr).await
+    }
+}
 
-    write_msg(
-        &mut wr,
-        &ClientMsg::CreateSession { cols: 80, rows: 24, shell: None },
-    )
-    .await?;
+async fn drive<R, W>(mut rd: R, mut wr: W) -> Result<()>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    write_msg(&mut wr, &ClientMsg::CreateSession { cols: 80, rows: 24, shell: None }).await?;
 
-    // Wait for the session id.
     let id = loop {
         match read_msg::<_, ServerMsg>(&mut rd).await? {
             ServerMsg::Created(info) => {
@@ -40,14 +58,9 @@ async fn main() -> Result<()> {
 
     write_msg(&mut wr, &ClientMsg::Attach { id }).await?;
 
-    // Drive the shell, then exit it.
     let typer = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(400)).await;
-        let _ = write_msg(
-            &mut wr,
-            &ClientMsg::Input { id, data: b"echo hello-from-aether\r".to_vec() },
-        )
-        .await;
+        let _ = write_msg(&mut wr, &ClientMsg::Input { id, data: b"echo hello-from-aether\r".to_vec() }).await;
         tokio::time::sleep(Duration::from_millis(700)).await;
         let _ = write_msg(&mut wr, &ClientMsg::Input { id, data: b"exit\r".to_vec() }).await;
     });

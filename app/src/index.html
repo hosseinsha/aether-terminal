@@ -11,7 +11,10 @@
   <div id="app">
     <div id="titlebar" data-tauri-drag-region>
       <span class="brand"><span class="dot"></span> AETHER</span>
-      <span id="title" class="title">local</span>
+      <div id="host-wrap">
+        <button id="host-btn"><span class="hdot"></span><span id="host-label">local</span><span class="caret">▾</span></button>
+        <div id="host-menu"></div>
+      </div>
       <div id="controls">
         <button class="ctl" data-act="split" title="Split  ⌘D">⊞ <span class="lbl">Split</span></button>
         <button class="ctl" data-act="close" title="Close  ⌘W">✕ <span class="lbl">Close</span></button>
