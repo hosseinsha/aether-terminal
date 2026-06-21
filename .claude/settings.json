@@ -10,7 +10,11 @@
       "Bash(git --no-pager diff .claude/settings.json)",
       "Bash(git --no-pager log --oneline -4)",
       "Bash(node --check app/src/main.js)",
-      "Bash(git --no-pager log --oneline -5)"
+      "Bash(git --no-pager log --oneline -5)",
+      "Bash(cliclick c:1320,323)",
+      "Bash(screencapture -x /tmp/th3-export.png)",
+      "Bash(osascript -e 'tell application \"System Events\" to get {position, size} of front window of \\(first process whose unix id is __CMDSUB_OUTPUT__\\)')",
+      "Bash(screencapture -x /tmp/th4.png)"
     ]
   }
 }
