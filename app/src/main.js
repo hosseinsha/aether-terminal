@@ -464,7 +464,17 @@ function syncPanel(t) {
   document.querySelectorAll("#ap-accents .swatch").forEach((s) => s.classList.toggle("sel", s.dataset.a === t.vars["--accent"]));
   document.querySelectorAll("#ap-scenes button").forEach((b) => b.classList.toggle("sel", b.dataset.scene === document.body.dataset.bg));
 }
-function toggleAppearance() { document.getElementById("appearance").classList.toggle("open"); }
+// Drive the appearance panel through one setter so `inert` stays in sync with
+// the open state. When closed the panel is only translated off-screen (still in
+// the DOM), so without `inert` Tab can focus its controls and the browser
+// scrolls the page to chase them — the panel "goes outside" and traps focus.
+function setAppearanceOpen(open) {
+  const el = document.getElementById("appearance");
+  el.classList.toggle("open", open);
+  el.inert = !open;
+  if (!open) { document.documentElement.scrollLeft = 0; document.documentElement.scrollTop = 0; }
+}
+function toggleAppearance() { setAppearanceOpen(!document.getElementById("appearance").classList.contains("open")); }
 
 // ============================================================
 // Connections + state
@@ -1003,7 +1013,8 @@ document.querySelectorAll("#controls .ctl").forEach((b) => {
 });
 document.getElementById("ctl-toggle").addEventListener("click", () => document.body.classList.toggle("controls-hidden"));
 
-const closeAppearance = () => document.getElementById("appearance").classList.remove("open");
+const closeAppearance = () => setAppearanceOpen(false);
+setAppearanceOpen(false); // start closed and non-tabbable
 document.getElementById("ap-close").addEventListener("click", closeAppearance);
 // Capture phase: the focused terminal swallows Escape (it's a valid PTY input),
 // so intercept it before xterm to close the panel when it's open.
