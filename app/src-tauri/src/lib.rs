@@ -108,6 +108,20 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
+            // Native macOS frosted-glass behind the translucent UI.
+            #[cfg(target_os = "macos")]
+            {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::HudWindow,
+                        Some(NSVisualEffectState::Active),
+                        None,
+                    );
+                }
+            }
+
             // Per-process socket so multiple app instances don't collide.
             let sock = std::env::temp_dir().join(format!("aether-{}.sock", std::process::id()));
 

@@ -137,6 +137,18 @@ function makeTerminal() {
   return { term, fit };
 }
 
+// GPU renderer for throughput; falls back to the DOM renderer if the WebGL
+// context is lost or unavailable.
+function attachWebgl(term) {
+  try {
+    const webgl = new WebglAddon.WebglAddon();
+    webgl.onContextLoss(() => { try { webgl.dispose(); } catch (_) {} });
+    term.loadAddon(webgl);
+  } catch (_) {
+    /* DOM renderer remains active */
+  }
+}
+
 function fitPane(p) {
   try { p.fit.fit(); } catch (_) {}
   if (p.sessionId !== null) invoke("resize", { id: p.sessionId, cols: p.term.cols, rows: p.term.rows });
@@ -167,6 +179,7 @@ function addPane() {
 
   canvas.appendChild(el);
   term.open(el.querySelector(".term-mount"));
+  attachWebgl(term);
   term.onData((d) => {
     if (p.sessionId !== null) invoke("input", { id: p.sessionId, data: Array.from(new TextEncoder().encode(d)) });
   });

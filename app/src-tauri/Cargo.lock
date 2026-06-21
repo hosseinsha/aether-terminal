@@ -19,6 +19,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tokio",
+ "window-vibrancy",
 ]
 
 [[package]]
