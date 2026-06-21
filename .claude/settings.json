@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git --no-pager diff app/src-tauri/src/lib.rs)"
+      "Bash(git --no-pager diff app/src-tauri/src/lib.rs)",
+      "Bash(cd /Users/hosseinshafiei/Documents/GitHub/aether-terminal *)",
+      "Read(//Users/hosseinshafiei/.cargo/registry/src/**)",
+      "Read(//Users/hosseinshafiei/.cargo/**)",
+      "Bash(find / -type d -iname 'vt100-*')",
+      "Bash(pkill -f 'aether-server')",
+      "Bash(git --no-pager diff .claude/settings.json)",
+      "Bash(git --no-pager log --oneline -4)"
     ]
   }
 }
