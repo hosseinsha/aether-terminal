@@ -637,6 +637,16 @@ document.querySelectorAll("#controls .ctl").forEach((b) => {
 });
 document.getElementById("ctl-toggle").addEventListener("click", () => document.body.classList.toggle("controls-hidden"));
 
+const closeAppearance = () => document.getElementById("appearance").classList.remove("open");
+document.getElementById("ap-close").addEventListener("click", closeAppearance);
+// Capture phase: the focused terminal swallows Escape (it's a valid PTY input),
+// so intercept it before xterm to close the panel when it's open.
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.getElementById("appearance").classList.contains("open")) {
+    e.preventDefault(); e.stopPropagation(); closeAppearance();
+  }
+}, true);
+
 document.getElementById("host-btn").addEventListener("click", (e) => {
   e.stopPropagation();
   const m = document.getElementById("host-menu");
