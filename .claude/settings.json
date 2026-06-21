@@ -14,7 +14,19 @@
       "Bash(cliclick c:1320,323)",
       "Bash(screencapture -x /tmp/th3-export.png)",
       "Bash(osascript -e 'tell application \"System Events\" to get {position, size} of front window of \\(first process whose unix id is __CMDSUB_OUTPUT__\\)')",
-      "Bash(screencapture -x /tmp/th4.png)"
+      "Bash(screencapture -x /tmp/th4.png)",
+      "Bash(python3 make_icon.py)",
+      "Bash(cargo tauri *)",
+      "Bash(grep -E '\\\\.\\(icns|ico|png\\)$')",
+      "Bash(tee /tmp/tauri-build.log)",
+      "Bash(find target/release/bundle -maxdepth 2 \\\\\\( -name '*.app' -o -name '*.dmg' \\\\\\))",
+      "Bash(du -sh target/release/bundle/macos/*.app)",
+      "Bash(osascript -e 'tell application \"System Events\" to get name of first process whose frontmost is true')",
+      "Bash(screencapture -x /tmp/builtapp.png)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/private/tmp"
     ]
   }
 }
