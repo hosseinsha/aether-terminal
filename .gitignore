@@ -4,3 +4,11 @@ dist/
 *.log
 .vscode/
 .idea/
+
+# Rust
+/target/
+**/*.rs.bk
+
+# Tauri build output
+app/src-tauri/target/
+app/dist/

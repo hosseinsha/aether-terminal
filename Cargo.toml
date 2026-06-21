@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aether-proto",
+    "crates/aether-server",
+]
+
+# The Tauri app (app/src-tauri) will be added to members in the next phase.
+
+[profile.release]
+lto = true
+codegen-units = 1

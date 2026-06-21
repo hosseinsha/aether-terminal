@@ -107,6 +107,20 @@ body[data-bg="mint"]::before {
     radial-gradient(60% 60% at 55% 92%, rgba(122,162,247,0.28), transparent 60%),
     linear-gradient(160deg, #08130f, #0a1a1c 60%, #07120f);
 }
+body[data-bg="retro"]::before {
+  background:
+    radial-gradient(45% 50% at 50% 16%, rgba(255,79,154,0.42), transparent 60%),
+    radial-gradient(40% 50% at 18% 32%, rgba(54,249,246,0.30), transparent 60%),
+    radial-gradient(42% 50% at 84% 34%, rgba(187,90,247,0.42), transparent 60%),
+    linear-gradient(180deg, #1b0b2e 0%, #2a0f43 45%, #0f0620 100%);
+}
+body[data-bg="forest"]::before {
+  background:
+    radial-gradient(42% 50% at 22% 26%, rgba(127,176,105,0.40), transparent 60%),
+    radial-gradient(45% 55% at 80% 30%, rgba(79,157,143,0.34), transparent 60%),
+    radial-gradient(60% 60% at 50% 95%, rgba(45,106,79,0.42), transparent 60%),
+    linear-gradient(165deg, #0a160f 0%, #0d1f15 55%, #08120c 100%);
+}
 
 @keyframes drift {
   0%   { transform: translate3d(0,0,0) scale(1.0); }
@@ -398,6 +412,20 @@ body.crt::after {
   display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
 }
 #theme .sub { font-size: 11px; color: var(--c-dim); margin-bottom: 18px; }
+.theme-list { display: flex; flex-direction: column; gap: 8px; }
+.theme-card {
+  position: relative; padding: 10px 12px 10px 18px; border-radius: 11px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03);
+  display: flex; flex-direction: column; gap: 2px; transition: 0.15s; overflow: hidden;
+}
+.theme-card::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  background: linear-gradient(var(--tc-a), var(--tc-b));
+}
+.theme-card:hover { background: rgba(255,255,255,0.07); }
+.theme-card.sel { border-color: var(--accent); background: rgba(255,255,255,0.09); }
+.tc-name { font-size: 12px; color: #fff; font-weight: 600; }
+.tc-sub { font-size: 10px; color: var(--c-dim); }
 .ctl { margin-bottom: 15px; }
 .ctl label {
   display: flex; justify-content: space-between; align-items: center;
@@ -511,6 +539,13 @@ body.crt::after {
     <div class="sub">Everything here is a live token. Tune it, then we bake it into the config format.</div>
 
     <div class="ctl">
+      <label>Theme <span class="val">press <b>c</b> to cycle</span></label>
+      <div class="theme-list" id="themes"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="ctl">
       <label>Accent</label>
       <div class="ctl-row" id="accents"></div>
     </div>
@@ -573,6 +608,7 @@ body.crt::after {
         <span class="kbd">u</span><span class="desc">undo close</span>
         <span class="kbd">m</span><span class="desc">maximize / restore focused pane</span>
         <span class="kbd">o</span><span class="desc">overview canvas</span>
+        <span class="kbd">c</span><span class="desc">cycle theme (default · retro · forest)</span>
         <span class="kbd">b</span><span class="desc">cycle background</span>
         <span class="kbd">t</span><span class="desc">customize panel</span>
         <span class="kbd">e</span><span class="desc">demo: error flash on focused pane</span>
@@ -800,7 +836,7 @@ function flashError() {
   el.classList.add('flash-error');
 }
 
-const BGS = ["aurora","nebula","solar","mono","mint"];
+const BGS = ["aurora","nebula","solar","mono","mint","retro","forest"];
 function cycleBg() {
   const cur = document.body.dataset.bg;
   const nb = BGS[(BGS.indexOf(cur)+1) % BGS.length];
@@ -811,6 +847,74 @@ function setBg(name) {
   document.getElementById('bg-name').textContent = name;
   document.querySelectorAll('#bgs .chip').forEach(c => c.classList.toggle('sel', c.dataset.bg === name));
 }
+
+/* ============================================================
+   Themes — each bundles accent, background, full syntax palette,
+   corners, translucency, grain and CRT into one named preset.
+   ============================================================ */
+const THEMES = {
+  default: {
+    label: "Default", sub: "Aether · modern glass",
+    bg: "aurora", crt: false, grain: "0.05",
+    vars: {
+      "--accent": "#7aa2f7", "--accent-2": "#bb9af7",
+      "--radius": "14px", "--pane-alpha": "0.55",
+      "--c-prompt": "#7aa2f7", "--c-path": "#7dcfff", "--c-branch": "#bb9af7",
+      "--c-str": "#9ece6a", "--c-num": "#ff9e64", "--c-ok": "#9ece6a",
+      "--c-warn": "#e0af68", "--c-err": "#f7768e", "--c-dim": "#565f89", "--c-text": "#c0caf5",
+    }
+  },
+  retro: {
+    label: "Modern Retro", sub: "Synthwave · CRT glow",
+    bg: "retro", crt: true, grain: "0.10",
+    vars: {
+      "--accent": "#ff4f9a", "--accent-2": "#36f9f6",
+      "--radius": "8px", "--pane-alpha": "0.42",
+      "--c-prompt": "#ff7edb", "--c-path": "#36f9f6", "--c-branch": "#ff8b39",
+      "--c-str": "#72f1b8", "--c-num": "#fede5d", "--c-ok": "#72f1b8",
+      "--c-warn": "#fede5d", "--c-err": "#fe4450", "--c-dim": "#8a6fb0", "--c-text": "#f6e9ff",
+    }
+  },
+  forest: {
+    label: "Nature Forest", sub: "Mossy · calm",
+    bg: "forest", crt: false, grain: "0.04",
+    vars: {
+      "--accent": "#8cb369", "--accent-2": "#4f9d8f",
+      "--radius": "20px", "--pane-alpha": "0.50",
+      "--c-prompt": "#a3b18a", "--c-path": "#74c69d", "--c-branch": "#d4a373",
+      "--c-str": "#95d5b2", "--c-num": "#e9c46a", "--c-ok": "#95d5b2",
+      "--c-warn": "#e9c46a", "--c-err": "#e76f51", "--c-dim": "#5f6f5a", "--c-text": "#d8e0d0",
+    }
+  },
+};
+const THEME_KEYS = Object.keys(THEMES);
+let themeKey = "default";
+
+function applyTheme(key) {
+  const t = THEMES[key]; if (!t) return;
+  themeKey = key;
+  Object.entries(t.vars).forEach(([k, v]) => root.setProperty(k, v));
+  setBg(t.bg);
+  root.setProperty('--grain', t.grain);
+  document.body.classList.toggle('crt', t.crt);
+
+  // keep the panel controls in sync with the chosen theme
+  document.querySelectorAll('#themes .theme-card').forEach(c => c.classList.toggle('sel', c.dataset.theme === key));
+  document.querySelectorAll('#accents .swatch').forEach(s =>
+    s.classList.toggle('sel', s.dataset.a === t.vars['--accent']));
+  syncRange('r-radius', 'v-radius', parseInt(t.vars['--radius']), v => v + 'px');
+  syncRange('r-alpha', 'v-alpha', Math.round(parseFloat(t.vars['--pane-alpha']) * 100), v => (v / 100).toFixed(2));
+  setSwitch('t-grain', parseFloat(t.grain) > 0);
+  setSwitch('t-crt', t.crt);
+}
+function cycleTheme() {
+  applyTheme(THEME_KEYS[(THEME_KEYS.indexOf(themeKey) + 1) % THEME_KEYS.length]);
+}
+function syncRange(rangeId, valId, value, fmt) {
+  document.getElementById(rangeId).value = value;
+  document.getElementById(valId).textContent = fmt(value);
+}
+function setSwitch(id, on) { document.getElementById(id).classList.toggle('on', on); }
 
 /* ============================================================
    Wire up dock + keys + theme panel
@@ -845,6 +949,7 @@ window.addEventListener('keydown', e => {
     case 'm': toggleMax(); break;
     case 'o': toggleOverview(); break;
     case 'b': cycleBg(); break;
+    case 'c': cycleTheme(); break;
     case 'e': flashError(); break;
     case 't': themePanel.classList.toggle('open'); break;
     case '?': help.classList.toggle('open'); break;
@@ -866,6 +971,7 @@ const accBox = document.getElementById('accents');
 ACCENTS.forEach((c,i) => {
   const s = document.createElement('div');
   s.className = 'swatch' + (i===0?' sel':'');
+  s.dataset.a = c.a;
   s.style.background = `linear-gradient(135deg, ${c.a}, ${c.b})`;
   s.onclick = () => {
     root.setProperty('--accent', c.a);
@@ -883,6 +989,18 @@ BGS.forEach(name => {
   c.dataset.bg = name; c.textContent = name;
   c.onclick = () => setBg(name);
   bgBox.appendChild(c);
+});
+
+const themeBox = document.getElementById('themes');
+Object.entries(THEMES).forEach(([key, t]) => {
+  const card = document.createElement('div');
+  card.className = 'theme-card' + (key === 'default' ? ' sel' : '');
+  card.dataset.theme = key;
+  card.style.setProperty('--tc-a', t.vars['--accent']);
+  card.style.setProperty('--tc-b', t.vars['--accent-2']);
+  card.innerHTML = `<span class="tc-name">${t.label}</span><span class="tc-sub">${t.sub}</span>`;
+  card.onclick = () => applyTheme(key);
+  themeBox.appendChild(card);
 });
 
 function bind(rangeId, valId, fmt, apply) {
@@ -920,6 +1038,7 @@ setInterval(() => {
     String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }, 1000);
 
+applyTheme('default');
 render();
 </script>
 </body>
