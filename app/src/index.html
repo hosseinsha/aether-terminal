@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body data-bg="aurora">
+  <canvas id="pixelart"></canvas>
   <div id="app">
     <div id="titlebar" data-tauri-drag-region>
       <span class="brand"><span class="dot"></span> AETHER</span>
@@ -41,7 +42,30 @@
       </div>
       <div class="sub" style="margin-top:4px">Live design tokens — tweak the look in real time.</div>
 
-      <div class="grp"><label>Theme</label><div class="theme-list" id="ap-themes"></div></div>
+      <div class="grp"><label>Background scene</label>
+        <div class="scene-row" id="ap-scenes">
+          <button type="button" data-scene="aurora">Aurora</button>
+          <button type="button" data-scene="retro">Synthwave</button>
+          <button type="button" data-scene="forest">Forest</button>
+        </div>
+      </div>
+      <div class="grp">
+        <label>Theme</label>
+        <div class="theme-list" id="ap-themes"></div>
+        <div class="theme-actions">
+          <button type="button" id="th-save">＋ Save as…</button>
+          <button type="button" id="th-export">⤓ Export</button>
+          <button type="button" id="th-import">⤒ Import</button>
+        </div>
+        <div class="theme-io" id="th-io" hidden>
+          <input type="text" id="th-name" placeholder="Theme name…" spellcheck="false">
+          <textarea id="th-json" placeholder="Paste theme JSON…" spellcheck="false"></textarea>
+          <div class="theme-io-btns">
+            <button type="button" id="th-ok">OK</button>
+            <button type="button" id="th-close">Close</button>
+          </div>
+        </div>
+      </div>
       <div class="grp"><label>Accent</label><div class="swatches" id="ap-accents"></div></div>
 
       <div class="grp"><label>Gap <span class="val" id="v-gap">8px</span></label><input type="range" id="r-gap" min="0" max="40" value="8"></div>

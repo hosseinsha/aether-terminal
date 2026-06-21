@@ -81,8 +81,200 @@ function applyTheme(key) {
   allPanes().forEach((p) => { p.term.options.theme = t.xterm; });
   document.getElementById("theme-label").textContent = t.label;
   syncPanel(t);
+  drawPixelArt();
+  try { localStorage.setItem("aether.theme", key); } catch (_) {}
 }
-function cycleTheme() { applyTheme(THEME_KEYS[(THEME_KEYS.indexOf(themeKey) + 1) % THEME_KEYS.length]); }
+function cycleTheme() { const keys = Object.keys(THEMES); applyTheme(keys[(keys.indexOf(themeKey) + 1) % keys.length]); }
+
+// ============================================================
+// Pixel-art background — a procedural scene per theme, drawn on a canvas
+// behind the panes (so it glows, blurred, through the translucent glass and
+// shows crisp in the gaps / overview). Redrawn only on theme change + resize.
+// ============================================================
+const artCanvas = document.getElementById("pixelart");
+const artCtx = artCanvas.getContext("2d");
+const PX = 5; // pixel-art block size
+const snap = (v) => Math.round(v / PX) * PX;
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function hexToRgb(h) { h = (h || "").replace("#", ""); if (h.length === 3) h = h.split("").map((c) => c + c).join(""); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function rgba(h, a) { const [r, g, b] = hexToRgb(h); return `rgba(${r},${g},${b},${a})`; }
+function mix(h1, h2, t) { const a = hexToRgb(h1), b = hexToRgb(h2); const c = a.map((v, i) => Math.round(v + (b[i] - v) * t)); return `rgb(${c[0]},${c[1]},${c[2]})`; }
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6d2b79f5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function blk(x, y, w, h, color) { artCtx.fillStyle = color; artCtx.fillRect(snap(x), snap(y), Math.max(PX, snap(w)), Math.max(PX, snap(h))); }
+function hills(W, H, baseY, color, amp, seed) {
+  artCtx.fillStyle = color;
+  for (let x = 0; x < W; x += PX) {
+    const y = baseY + Math.sin(x * 0.008 + seed) * H * amp + Math.sin(x * 0.021 + seed * 2) * H * amp * 0.4;
+    artCtx.fillRect(snap(x), snap(y), PX, H - snap(y));
+  }
+}
+
+function drawPixelArt() {
+  if (!artCanvas) return;
+  const W = (artCanvas.width = window.innerWidth);
+  const H = (artCanvas.height = window.innerHeight);
+  artCtx.clearRect(0, 0, W, H);
+  artCtx.imageSmoothingEnabled = false;
+  const a1 = cssVar("--accent") || "#7aa2f7";
+  const a2 = cssVar("--accent-2") || "#bb9af7";
+  const scene = document.body.dataset.bg || "aurora";
+  if (scene === "retro") drawSynthwave(W, H, a1, a2);
+  else if (scene === "forest") drawForest(W, H, a1, a2);
+  else drawAurora(W, H, a1, a2);
+}
+
+function drawAurora(W, H, a1, a2) {
+  const rng = mulberry32(1337);
+  for (let i = 0; i < 150; i++) {
+    const x = rng() * W, y = rng() * H * 0.72, s = rng() < 0.15 ? PX * 2 : PX, a = 0.25 + rng() * 0.6;
+    blk(x, y, s, s, rng() < 0.5 ? rgba("#ffffff", a) : rgba(a1, a));
+  }
+  for (let band = 0; band < 3; band++) {
+    const baseY = H * 0.16 + band * H * 0.09, col = band % 2 ? a2 : a1;
+    for (let x = 0; x < W; x += PX) {
+      const y = baseY + Math.sin(x * 0.012 + band * 2) * H * 0.04 + Math.sin(x * 0.03 + band) * H * 0.015;
+      const len = H * 0.1 + Math.sin(x * 0.02 + band) * H * 0.03;
+      for (let yy = 0; yy < len; yy += PX) blk(x, y + yy, PX, PX, rgba(col, 0.06 * (1 - yy / len)));
+    }
+  }
+  hills(W, H, H * 0.84, mix("#0b0d1a", a1, 0.10), 0.06, 7);
+  hills(W, H, H * 0.92, mix("#07080f", a1, 0.05), 0.04, 13);
+}
+
+function drawSynthwave(W, H, a1, a2) {
+  const cx = W / 2, horizon = Math.round(H * 0.58), R = Math.round(Math.min(W, H) * 0.2), sy = horizon - Math.round(R * 0.15);
+  for (let y = -R; y < R; y += PX) {
+    const half = Math.sqrt(Math.max(0, R * R - y * y));
+    if (half <= 0) continue;
+    blk(cx - half, sy + y, half * 2, PX, rgba(mix(a2, a1, (y + R) / (2 * R)), 0.6));
+  }
+  for (let y = Math.round(-R * 0.05); y < R; y += PX * 3) artCtx.clearRect(snap(cx - R), snap(sy + y), R * 2, PX);
+  artCtx.strokeStyle = rgba(a2, 0.3); artCtx.lineWidth = 1;
+  for (let i = 1; i <= 14; i++) { const t = i / 14, y = horizon + Math.pow(t, 1.7) * (H - horizon); artCtx.beginPath(); artCtx.moveTo(0, Math.round(y) + 0.5); artCtx.lineTo(W, Math.round(y) + 0.5); artCtx.stroke(); }
+  for (let i = -12; i <= 12; i++) { const x = cx + i * (W * 0.055); artCtx.beginPath(); artCtx.moveTo(Math.round(x) + 0.5, H); artCtx.lineTo(cx + 0.5, horizon + 0.5); artCtx.stroke(); }
+  blk(0, horizon - PX, W, PX, rgba(a1, 0.45));
+}
+
+function drawForest(W, H, a1, a2) {
+  const rng = mulberry32(99), green = a1;
+  const mx = W * 0.8, my = H * 0.2, mr = Math.round(Math.min(W, H) * 0.06);
+  for (let y = -mr; y < mr; y += PX) { const half = Math.sqrt(Math.max(0, mr * mr - y * y)); blk(mx - half, my + y, half * 2, PX, rgba("#f6f2d0", 0.5)); }
+  hills(W, H, H * 0.56, mix("#0a160f", green, 0.30), 0.05, 3);
+  hills(W, H, H * 0.70, mix("#0a160f", green, 0.20), 0.06, 9);
+  hills(W, H, H * 0.84, mix("#06100a", green, 0.12), 0.07, 15);
+  const trunk = "#3a2a18", leaf = mix("#06120b", green, 0.22);
+  for (let i = 0; i < 20; i++) {
+    const x = rng() * W, baseY = H * 0.82 + rng() * H * 0.05, h = H * 0.05 + rng() * H * 0.045;
+    for (let l = 0; l < 3; l++) {
+      const ly = baseY - h + l * h * 0.32, lw = (h * 0.55) * (1 - l * 0.22), seg = h * 0.42;
+      for (let yy = 0; yy < seg; yy += PX) { const ww = lw * (yy / seg); blk(x - ww, ly + yy, ww * 2, PX, rgba(leaf, 0.85)); }
+    }
+    blk(x - PX, baseY, PX * 2, h * 0.12, rgba(trunk, 0.8));
+  }
+}
+
+// ============================================================
+// Theme build / import / export
+// A theme is fully serializable: { label, bg(scene), crt, grain, vars, xterm }.
+// Custom themes are persisted in localStorage and shown alongside the built-ins.
+// ============================================================
+const SCENES = ["aurora", "retro", "forest"];
+const slugify = (s) => ((s || "theme").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")) || "theme";
+function uniqueId(base) { let id = base, i = 2; while (THEMES[id]) id = base + "-" + i++; return id; }
+
+// Snapshot the current live look into a serializable theme object.
+function currentThemeObject(label) {
+  const base = THEMES[themeKey] || THEMES.default;
+  return {
+    label: label || base.label,
+    bg: document.body.dataset.bg || "aurora",
+    crt: document.body.classList.contains("crt"),
+    grain: cssVar("--grain") || "0",
+    vars: {
+      "--accent": cssVar("--accent"), "--accent-2": cssVar("--accent-2"),
+      "--radius": cssVar("--radius"), "--pane-alpha": cssVar("--pane-alpha"),
+    },
+    xterm: JSON.parse(JSON.stringify(base.xterm)),
+  };
+}
+function renderThemeCards() {
+  const wrap = document.getElementById("ap-themes");
+  wrap.innerHTML = "";
+  Object.entries(THEMES).forEach(([key, t]) => {
+    const card = document.createElement("div");
+    card.className = "theme-card" + (key === themeKey ? " sel" : "");
+    card.dataset.theme = key;
+    card.style.setProperty("--tc-a", t.vars["--accent"]);
+    card.style.setProperty("--tc-b", t.vars["--accent-2"]);
+    card.innerHTML = `<span class="tc-name">${t.label}</span>` + (t.custom ? '<span class="tc-del" title="Delete theme">✕</span>' : "");
+    card.addEventListener("click", (e) => {
+      if (e.target.classList.contains("tc-del")) { e.stopPropagation(); deleteTheme(key); return; }
+      applyTheme(key);
+    });
+    wrap.appendChild(card);
+  });
+}
+function persistCustomThemes() {
+  try { localStorage.setItem("aether.customThemes", JSON.stringify(Object.values(THEMES).filter((t) => t.custom))); } catch (_) {}
+}
+function loadCustomThemes() {
+  try {
+    (JSON.parse(localStorage.getItem("aether.customThemes") || "[]") || []).forEach((t) => {
+      if (t && t.id && t.vars && t.xterm) THEMES[t.id] = { ...t, custom: true };
+    });
+  } catch (_) {}
+}
+function addCustomTheme(obj) {
+  const id = uniqueId(slugify(obj.label));
+  THEMES[id] = { ...obj, id, custom: true };
+  persistCustomThemes();
+  renderThemeCards();
+  applyTheme(id);
+}
+function deleteTheme(id) {
+  if (!THEMES[id] || !THEMES[id].custom) return;
+  const wasActive = themeKey === id;
+  delete THEMES[id];
+  persistCustomThemes();
+  if (wasActive) applyTheme("default");
+  renderThemeCards();
+}
+function setScene(scene) {
+  if (!SCENES.includes(scene)) return;
+  document.body.dataset.bg = scene;
+  drawPixelArt();
+  document.querySelectorAll("#ap-scenes button").forEach((b) => b.classList.toggle("sel", b.dataset.scene === scene));
+}
+function exportThemeJSON() { return JSON.stringify(currentThemeObject(THEMES[themeKey] ? THEMES[themeKey].label : "Custom"), null, 2); }
+function importThemeJSON(text) {
+  let obj;
+  try { obj = JSON.parse(text); } catch (_) { toast("Import failed — invalid JSON"); return false; }
+  if (!obj || !obj.vars || !obj.xterm) { toast("Import failed — not an AETHER theme"); return false; }
+  if (!SCENES.includes(obj.bg)) obj.bg = "aurora";
+  addCustomTheme(obj);
+  toast("Imported “" + (obj.label || "theme") + "”");
+  return true;
+}
+
+// The Save / Export / Import slide-out shares one input + textarea by mode.
+let ioMode = null;
+function openIo(mode) {
+  ioMode = mode;
+  const io = document.getElementById("th-io"), name = document.getElementById("th-name"), ta = document.getElementById("th-json"), ok = document.getElementById("th-ok");
+  io.hidden = false;
+  name.hidden = mode !== "save";
+  ta.hidden = mode === "save";
+  if (mode === "save") { ok.textContent = "Save"; name.value = ((THEMES[themeKey] && THEMES[themeKey].label) || "Custom") + " copy"; name.focus(); name.select(); }
+  else if (mode === "export") { ok.textContent = "Copy"; ta.value = exportThemeJSON(); ta.focus(); ta.select(); try { navigator.clipboard.writeText(ta.value); } catch (_) {} }
+  else { ok.textContent = "Load"; ta.value = ""; ta.focus(); }
+}
+function closeIo() { document.getElementById("th-io").hidden = true; ioMode = null; }
+function ioOk() {
+  const name = document.getElementById("th-name").value.trim(), ta = document.getElementById("th-json");
+  if (ioMode === "save") { addCustomTheme(currentThemeObject(name || "Custom")); toast("Saved “" + (name || "Custom") + "”"); closeIo(); }
+  else if (ioMode === "export") { try { navigator.clipboard.writeText(ta.value); toast("Theme JSON copied"); } catch (_) { ta.select(); toast("Press ⌘C to copy"); } }
+  else if (ioMode === "import") { if (importThemeJSON(ta.value)) closeIo(); }
+}
 
 function syncPanel(t) {
   const setRange = (rid, vid, val, fmt) => {
@@ -97,6 +289,7 @@ function syncPanel(t) {
   const c = document.getElementById("t-crt"); if (c) c.classList.toggle("on", t.crt);
   document.querySelectorAll("#ap-themes .theme-card").forEach((card) => card.classList.toggle("sel", card.dataset.theme === themeKey));
   document.querySelectorAll("#ap-accents .swatch").forEach((s) => s.classList.toggle("sel", s.dataset.a === t.vars["--accent"]));
+  document.querySelectorAll("#ap-scenes button").forEach((b) => b.classList.toggle("sel", b.dataset.scene === document.body.dataset.bg));
 }
 function toggleAppearance() { document.getElementById("appearance").classList.toggle("open"); }
 
@@ -669,17 +862,17 @@ const ACCENTS = [
   { a: "#9ece6a", b: "#7dcfff" }, { a: "#f7768e", b: "#ff9e64" },
   { a: "#ff9e64", b: "#e0af68" }, { a: "#7dcfff", b: "#9ece6a" },
 ];
-const apThemes = document.getElementById("ap-themes");
-Object.entries(THEMES).forEach(([key, t]) => {
-  const card = document.createElement("div");
-  card.className = "theme-card";
-  card.dataset.theme = key;
-  card.style.setProperty("--tc-a", t.vars["--accent"]);
-  card.style.setProperty("--tc-b", t.vars["--accent-2"]);
-  card.innerHTML = `<span class="tc-name">${t.label}</span>`;
-  card.onclick = () => applyTheme(key);
-  apThemes.appendChild(card);
-});
+loadCustomThemes();
+renderThemeCards();
+
+// Scene selector + theme Save/Export/Import controls.
+document.querySelectorAll("#ap-scenes button").forEach((b) => b.addEventListener("click", () => setScene(b.dataset.scene)));
+document.getElementById("th-save").addEventListener("click", () => openIo("save"));
+document.getElementById("th-export").addEventListener("click", () => openIo("export"));
+document.getElementById("th-import").addEventListener("click", () => openIo("import"));
+document.getElementById("th-ok").addEventListener("click", ioOk);
+document.getElementById("th-close").addEventListener("click", closeIo);
+document.getElementById("th-name").addEventListener("keydown", (e) => { if (e.key === "Enter") ioOk(); e.stopPropagation(); });
 const apAccents = document.getElementById("ap-accents");
 ACCENTS.forEach((c) => {
   const s = document.createElement("div");
@@ -691,6 +884,7 @@ ACCENTS.forEach((c) => {
     rootStyle.setProperty("--accent-2", c.b);
     document.querySelectorAll("#ap-accents .swatch").forEach((x) => x.classList.remove("sel"));
     s.classList.add("sel");
+    drawPixelArt();
   };
   apAccents.appendChild(s);
 });
@@ -733,13 +927,15 @@ window.addEventListener("keydown", (e) => {
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => cur().panes.forEach(fitPane), 80);
+  resizeTimer = setTimeout(() => { cur().panes.forEach(fitPane); drawPixelArt(); }, 80);
 });
 
 // ============================================================
 // Boot
 // ============================================================
-applyTheme("default");
+let savedTheme;
+try { savedTheme = localStorage.getItem("aether.theme"); } catch (_) {}
+applyTheme(savedTheme && THEMES[savedTheme] ? savedTheme : "default");
 updateHostUI();
 updateSessionUI();
 bootstrapConn("local");
