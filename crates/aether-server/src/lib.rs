@@ -13,7 +13,7 @@
 //!
 //! Either way the wire protocol is identical; only the listener's location changes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,6 +26,11 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
 use tokio::sync::{broadcast, mpsc};
 
+/// Bytes of raw PTY output kept per session for scrollback replay on attach.
+/// Roughly the 5000-line `vt100` scrollback at 80 cols; the visible screen is
+/// just the tail of this stream, so replaying it reproduces screen + history.
+const HISTORY_CAP: usize = 1024 * 1024;
+
 /// What the per-session reader thread fans out to attached clients.
 #[derive(Clone)]
 enum OutEvent {
@@ -33,11 +38,32 @@ enum OutEvent {
     Exit(Option<i32>),
 }
 
+/// Append a PTY chunk to the rolling history, trimming the front back under the
+/// cap and then to the next line boundary — so a replay never starts in the
+/// middle of an escape sequence.
+fn push_history(h: &mut VecDeque<u8>, chunk: &[u8]) {
+    h.extend(chunk.iter().copied());
+    if h.len() > HISTORY_CAP {
+        for _ in 0..(h.len() - HISTORY_CAP) {
+            h.pop_front();
+        }
+        while let Some(&b) = h.front() {
+            h.pop_front();
+            if b == b'\n' {
+                break;
+            }
+        }
+    }
+}
+
 /// A live, persistent session: a PTY plus the state needed to render and revive it.
 struct Session {
     info: Mutex<SessionInfo>,
-    /// Grid mirror, fed by the reader thread; queried for snapshots on attach.
+    /// Grid mirror, fed by the reader thread; kept for resize reflow.
     parser: Arc<Mutex<vt100::Parser>>,
+    /// Rolling raw PTY output, replayed on attach so clients get scrollback,
+    /// not just the visible screen.
+    history: Arc<Mutex<VecDeque<u8>>>,
     /// Writes go to the PTY master (keystrokes from clients).
     writer: Mutex<Box<dyn Write + Send>>,
     /// Kept for resize.
@@ -70,12 +96,15 @@ impl Session {
         let writer = pair.master.take_writer()?;
 
         let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, 5000)));
+        let history = Arc::new(Mutex::new(VecDeque::<u8>::new()));
         let (out_tx, _keep) = broadcast::channel::<OutEvent>(1024);
 
-        // Blocking PTY read loop on its own thread: feed the grid mirror, then
-        // fan the raw bytes out to attached clients.
+        // Blocking PTY read loop on its own thread: record raw output for the
+        // scrollback snapshot, feed the grid mirror, then fan the bytes out to
+        // attached clients.
         {
             let parser = parser.clone();
+            let history = history.clone();
             let out_tx = out_tx.clone();
             std::thread::spawn(move || {
                 let mut buf = [0u8; 8192];
@@ -87,11 +116,14 @@ impl Session {
                         }
                         Ok(n) => {
                             let chunk = buf[..n].to_vec();
+                            if let Ok(mut h) = history.lock() {
+                                push_history(&mut h, &chunk);
+                            }
                             if let Ok(mut p) = parser.lock() {
                                 p.process(&chunk);
                             }
                             // Err just means nobody is attached right now; the
-                            // grid mirror still captured it for the next snapshot.
+                            // history still captured it for the next snapshot.
                             let _ = out_tx.send(OutEvent::Data(chunk));
                         }
                     }
@@ -110,6 +142,7 @@ impl Session {
         Ok(Arc::new(Session {
             info: Mutex::new(info),
             parser,
+            history,
             writer: Mutex::new(writer),
             master: Mutex::new(pair.master),
             out_tx,
@@ -117,11 +150,13 @@ impl Session {
         }))
     }
 
-    /// Escape-sequence stream that reproduces the current screen on attach.
+    /// Raw output replayed on attach. Because it's the verbatim PTY byte stream
+    /// (up to [`HISTORY_CAP`]), feeding it to a terminal reproduces the visible
+    /// screen *and* the scrollback above it — not just the current screen.
     fn snapshot(&self) -> Vec<u8> {
-        self.parser
+        self.history
             .lock()
-            .map(|p| p.screen().contents_formatted())
+            .map(|h| h.iter().copied().collect())
             .unwrap_or_default()
     }
 

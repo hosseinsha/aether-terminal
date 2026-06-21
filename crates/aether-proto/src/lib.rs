@@ -53,9 +53,10 @@ pub enum ServerMsg {
     Sessions(Vec<SessionInfo>),
     /// Reply to [`ClientMsg::CreateSession`].
     Created(SessionInfo),
-    /// Full current screen state, sent immediately on attach so a (re)connecting
-    /// client is brought up to date. `data` is a stream of escape sequences that
-    /// reproduce the screen when written to a terminal/`xterm.js`.
+    /// Recent session output, sent immediately on attach so a (re)connecting
+    /// client is brought up to date. `data` is the raw PTY byte history; writing
+    /// it to a terminal/`xterm.js` reproduces the visible screen *and* the
+    /// scrollback above it.
     Snapshot { id: SessionId, data: Vec<u8> },
     /// Live PTY output for an attached session.
     Output { id: SessionId, data: Vec<u8> },

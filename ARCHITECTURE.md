@@ -38,8 +38,9 @@ The product promise is "panes don't die." For that, PTYs and their screen state
 must outlive any window:
 
 - **Persistence / detach-reattach** — close the app, sessions keep running; on
-  reconnect the server replays a **snapshot** (the `vt100` mirror's current
-  screen as escape sequences) then resumes live output.
+  reconnect the server replays a **snapshot** (a rolling buffer of the raw PTY
+  output, so the client gets the scrollback history, not just the current
+  screen) then resumes live output.
 - **Remote** — attaching to a box across the world is the identical flow; only
   the transport changes (Unix socket → TCP+TLS / SSH tunnel).
 - **Multi-client** — several clients (or panes) can attach to one session via the
@@ -50,8 +51,9 @@ must outlive any window:
 1. `CreateSession` → server opens a PTY (`portable-pty`) and spawns the shell.
 2. A blocking reader thread reads PTY output → feeds the `vt100` parser (grid
    mirror) → broadcasts the raw bytes to attached clients.
-3. `Attach` → server sends a `Snapshot` (current screen) then streams `Output`.
-   Snapshot + subscribe happen together so nothing is lost or doubled.
+3. `Attach` → server sends a `Snapshot` (the raw-output history buffer, which
+   replays the visible screen *and* the scrollback above it) then streams
+   `Output`. Snapshot + subscribe happen together so nothing is lost or doubled.
 4. `Input` / `Resize` → written to the PTY master (and the mirror, on resize).
 5. PTY EOF → `Exited`.
 
@@ -114,5 +116,6 @@ connection is running:
 - [x] Remote transport (SSH via `--stdio`) + host picker
 - [x] Detach/reattach UX + session list (detach keeps the session alive on the
       server; reattach replays its screen via `Snapshot`)
-- [ ] Scrollback streaming beyond the visible screen
+- [x] Scrollback beyond the visible screen (attach replays a rolling raw-output
+      history buffer, ~1 MiB/session, so reattach restores scrollable history)
 - [ ] Evaluate native `wgpu` renderer if the webview hits a perf/shader ceiling
