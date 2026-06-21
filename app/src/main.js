@@ -115,7 +115,7 @@ const THEMES = {
   },
   mario: {
     label: "Super Mario", bg: "mario", crt: false, grain: "0.05",
-    vars: { "--accent": "#e52521", "--accent-2": "#fbd000", "--radius": "4px", "--pane-alpha": "0.5" },
+    vars: { "--accent": "#e52521", "--accent-2": "#ffffff", "--radius": "4px", "--pane-alpha": "0.5" },
     xterm: {
       background: "rgba(0,0,0,0)", foreground: "#ffffff", cursor: "#e52521", cursorAccent: "#1a1a2a",
       selectionBackground: "rgba(229,37,33,0.30)",
@@ -198,26 +198,53 @@ function sprite(bm, ox, oy, s, colors) {
   }
 }
 const ART_DINO = [
-  "          XXXXX",
-  "          XXXXX",
-  "          X XXX",
-  "          XXXXX",
-  "          XXX  ",
-  "X         XXX  ",
-  "X         XXXX ",
-  "XX     XXXXXXX ",
-  "XXX    XXXXXXX ",
-  "XXXX   XXXXXX  ",
-  "XXXXXXXXXXXX   ",
-  " XXXXXXXXXXX   ",
-  "  XXXXXXXXX    ",
-  "   XXXXXXX     ",
-  "   XX   XX     ",
-  "   XX   XX     ",
-  "   X    X      ",
-  "   X    X      ",
+  "                      XXXXXXXXXXXXXXXX  ",
+  "                      XXXXXXXXXXXXXXXX  ",
+  "                    XXXXXXXXXXXXXXXXXXXX",
+  "                    XXXX  XXXXXXXXXXXXXX",
+  "                    XXXX  XXXXXXXXXXXXXX",
+  "                    XXXXXXXXXXXXXXXXXXXX",
+  "                    XXXXXXXXXXXXXXXXXXXX",
+  "                    XXXXXXXXXXXXXXXXXXXX",
+  "                    XXXXXXXXXXXXXXXXXXXX",
+  "                    XXXXXXXXXXXXXXXXXXXX",
+  "                    XXXXXXXXXXXXXXXXXXXX",
+  "                    XXXXXXXXXX          ",
+  "                    XXXXXXXXXX          ",
+  "                    XXXXXXXXXXXXXXXX    ",
+  "                    XXXXXXXXXXXXXXXX    ",
+  "XX                XXXXXXXXXX            ",
+  "XX                XXXXXXXXXX            ",
+  "XX             XXXXXXXXXXXXX            ",
+  "XX             XXXXXXXXXXXXX            ",
+  "XXXX        XXXXXXXXXXXXXXXXXXXX        ",
+  "XXXX        XXXXXXXXXXXXXXXXXXXX        ",
+  "XXXXXX    XXXXXXXXXXXXXXXXXX  XX        ",
+  "XXXXXX    XXXXXXXXXXXXXXXXXX  XX        ",
+  "XXXXXXXXXXXXXXXXXXXXXXXXXXXX            ",
+  "XXXXXXXXXXXXXXXXXXXXXXXXXXXX            ",
+  "XXXXXXXXXXXXXXXXXXXXXXXXXXXX            ",
+  "XXXXXXXXXXXXXXXXXXXXXXXXXXXX            ",
+  "  XXXXXXXXXXXXXXXXXXXXXXXXXX            ",
+  "  XXXXXXXXXXXXXXXXXXXXXXXX              ",
+  "    XXXXXXXXXXXXXXXXXXXXXX              ",
+  "    XXXXXXXXXXXXXXXXXXXXXX              ",
+  "      XXXXXXXXXXXXXXXXXX                ",
+  "      XXXXXXXXXXXXXXXXXX                ",
+  "        XXXXXXXXXXXXXX                  ",
+  "        XXXXXXXXXXXXXX                  ",
+  "          XXXXXX  XXXX                  ",
+  "          XXXXXX  XXXX                  ",
+  "          XXXX      XX                  ",
+  "          XXXX      XX                  ",
+  "          XX        XX                  ",
+  "          XX        XX                  ",
+  "          XXXX      XXXX                ",
+  "          XXXX      XXXX                ",
 ];
-const ART_CACTUS = ["  X  ", "  X  ", "X X  ", "X X X", "XXX X", "  XXX", "  X  ", "  X  "];
+const ART_CACTUS_BIG = ["  X   ", "  X   ", "X X   ", "X X X ", "X X X ", "XXX X ", "  XXX ", "  X   ", "  X   ", "  X   "];
+const ART_CACTUS_SMALL = [" X  ", " X  ", "XX X", "XXXX", " XX ", " X  "];
+const ART_PTERO = ["XX        ", " XXX    XX", "  XXXXXXXX", "   XXXXXXX", "    XXX   "];
 const ART_FISH = ["  XXXX  X", " XXXXXX XX", "XEXXXXXXXX", "XEXXXXXXXX", " XXXXXX XX", "  XXXX  X"];
 const ART_CLOUD = ["  XXXX  ", " XXXXXX ", "XXXXXXXX", "XXXXXXXX"];
 const ART_QBLOCK = ["OOOOOOOO", "OYYKKYYO", "OYKYYKYO", "OYYYKYYO", "OYYKYYYO", "OYYYYYYO", "OYYKYYYO", "OOOOOOOO"];
@@ -230,13 +257,33 @@ const ART_CAR = [
   "RRWWRRRRRRRRRWWRR ",
   " WWWW       WWWW  ",
 ];
+// Super Mushroom — R red cap, W white spots/rim, C cream face, K dark eyes
+const ART_MUSHROOM = [
+  "    RRRRRR    ",
+  "  RRRRRRRRRR  ",
+  " RRWWRRRRWWRR ",
+  " RWWWWRRWWWWR ",
+  "RRWWWWRRWWWWRR",
+  "RRRRRRRRRRRRRR",
+  "RRRRRRRRRRRRRR",
+  " WWWWWWWWWWWW ",
+  " WCCKKCCKKCCW ",
+  " WCCKKCCKKCCW ",
+  " WCCCCCCCCCCW ",
+  "  WWWWWWWWWW  ",
+];
 
 function drawDino(W, H) {
-  const g = "#cfcfcf", gd = "#8f8f8f", groundY = Math.round(H * 0.8), rng = mulberry32(5);
-  for (let i = 0; i < 5; i++) sprite(ART_CLOUD, rng() * W * 0.9, H * (0.12 + rng() * 0.25), PX * 1.4, { X: rgba("#bdbdbd", 0.45) });
-  for (let x = 0; x < W; x += PX) { blk(x, groundY, PX, PX, g); if ((x / PX) % 7 === 0) blk(x, groundY + PX * 2, PX, PX, gd); }
-  sprite(ART_DINO, W * 0.12, groundY - ART_DINO.length * PX * 1.5, PX * 1.5, { X: g });
-  [0.45, 0.62, 0.82].forEach((fx, i) => { const sc = PX * (1.2 + i * 0.25); sprite(ART_CACTUS, W * fx, groundY - ART_CACTUS.length * sc, sc, { X: gd }); });
+  const g = "#d2d2d2", gd = "#8f8f8f", groundY = Math.round(H * 0.82), rng = mulberry32(5);
+  for (let i = 0; i < 4; i++) sprite(ART_CLOUD, rng() * W * 0.85, H * (0.12 + rng() * 0.2), PX * 1.6, { X: rgba("#bdbdbd", 0.45) });
+  sprite(ART_PTERO, W * 0.6, H * 0.2, PX * 1.5, { X: rgba("#a8a8a8", 0.6) }); // gliding pterodactyl
+  for (let x = 0; x < W; x += PX) { blk(x, groundY, PX, PX, g); if ((x / PX) % 6 === 0) blk(x, groundY + PX * 2, PX, PX, gd); }
+  const ds = PX * 0.8;
+  sprite(ART_DINO, W * 0.1, groundY - ART_DINO.length * ds, ds, { X: g });
+  const cs = PX * 1.5;
+  sprite(ART_CACTUS_BIG, W * 0.42, groundY - ART_CACTUS_BIG.length * cs, cs, { X: gd });
+  sprite(ART_CACTUS_SMALL, W * 0.55, groundY - ART_CACTUS_SMALL.length * PX * 1.3, PX * 1.3, { X: gd });
+  sprite(ART_CACTUS_BIG, W * 0.73, groundY - ART_CACTUS_BIG.length * cs * 0.85, cs * 0.85, { X: gd });
 }
 
 function drawOcean(W, H, a1, a2) {
@@ -290,10 +337,9 @@ function drawMario(W, H, a1, a2) {
   blk(pipeX + pipeW - PX * 2, groundY - pipeH, PX * 2, pipeH, "#1d7a1d");
   blk(pipeX - lipOver, groundY - pipeH - lipH, pipeW + lipOver * 2, lipH, "#2aa12a");
   blk(pipeX - lipOver, groundY - pipeH - lipH, PX * 3, lipH, "#74e074");
-  sprite(ART_QBLOCK, W * 0.3, H * 0.4, PX * 2.2, { O: "#3a1d0c", Y: "#fbd000", K: "#7a3b08" });
-  sprite(ART_QBLOCK, W * 0.4, H * 0.4, PX * 2.2, { O: "#3a1d0c", Y: "#fbd000", K: "#7a3b08" });
-  const coinX = W * 0.52, coinY = H * 0.28, cr = PX * 3;
-  for (let y = -cr; y < cr; y += PX) { const half = Math.sqrt(Math.max(0, cr * cr - y * y)); blk(coinX - half, coinY + y, half * 2, PX, rgba("#fbd000", 0.9)); }
+  sprite(ART_QBLOCK, W * 0.32, H * 0.42, PX * 2.2, { O: "#3a1d0c", Y: "#fbd000", K: "#7a3b08" });
+  // red-and-white Super Mushroom (replaces the yellow coin)
+  sprite(ART_MUSHROOM, W * 0.48, H * 0.24, PX * 2.4, { R: rgba("#e52521", 0.92), W: rgba("#ffffff", 0.95), C: rgba("#f6dca8", 0.92), K: rgba("#241008", 0.9) });
 }
 
 function drawAurora(W, H, a1, a2) {
@@ -370,8 +416,17 @@ function currentThemeObject(label) {
     xterm: JSON.parse(JSON.stringify(base.xterm)),
   };
 }
+function defaultThemeId() { try { return localStorage.getItem("aether.defaultTheme"); } catch (_) { return null; } }
+// Pin (or un-pin) the theme that loads on launch. Clicking the active default clears it.
+function setDefaultTheme(id) {
+  const wasDefault = defaultThemeId() === id;
+  try { wasDefault ? localStorage.removeItem("aether.defaultTheme") : localStorage.setItem("aether.defaultTheme", id); } catch (_) {}
+  renderThemeCards();
+  toast(wasDefault ? "Default theme cleared" : "“" + ((THEMES[id] && THEMES[id].label) || id) + "” loads on launch");
+}
 function renderThemeCards() {
   const wrap = document.getElementById("ap-themes");
+  const def = defaultThemeId();
   wrap.innerHTML = "";
   Object.entries(THEMES).forEach(([key, t]) => {
     const card = document.createElement("div");
@@ -379,8 +434,11 @@ function renderThemeCards() {
     card.dataset.theme = key;
     card.style.setProperty("--tc-a", t.vars["--accent"]);
     card.style.setProperty("--tc-b", t.vars["--accent-2"]);
-    card.innerHTML = `<span class="tc-name">${t.label}</span>` + (t.custom ? '<span class="tc-del" title="Delete theme">✕</span>' : "");
+    card.innerHTML = `<span class="tc-name">${t.label}</span>` +
+      `<span class="tc-default${key === def ? " on" : ""}" title="Set as default (loads on launch)">★</span>` +
+      (t.custom ? '<span class="tc-del" title="Delete theme">✕</span>' : "");
     card.addEventListener("click", (e) => {
+      if (e.target.classList.contains("tc-default")) { e.stopPropagation(); setDefaultTheme(key); return; }
       if (e.target.classList.contains("tc-del")) { e.stopPropagation(); deleteTheme(key); return; }
       applyTheme(key);
     });
@@ -1158,9 +1216,9 @@ window.addEventListener("resize", () => {
 // ============================================================
 // Boot
 // ============================================================
-let savedTheme;
-try { savedTheme = localStorage.getItem("aether.theme"); } catch (_) {}
-applyTheme(savedTheme && THEMES[savedTheme] ? savedTheme : "default");
+let bootTheme;
+try { bootTheme = localStorage.getItem("aether.defaultTheme") || localStorage.getItem("aether.theme"); } catch (_) {}
+applyTheme(bootTheme && THEMES[bootTheme] ? bootTheme : "default");
 updateHostUI();
 updateSessionUI();
 bootstrapConn("local");

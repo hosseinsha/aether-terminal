@@ -283,7 +283,11 @@ body.controls-hidden #controls { opacity: 0; transform: translateX(8px); pointer
 .theme-io input:focus, .theme-io textarea:focus { border-color: var(--accent); }
 .theme-io-btns { display: flex; gap: 6px; }
 .theme-card { display: flex; align-items: center; }
-.tc-del { margin-left: auto; opacity: 0; color: var(--dim); cursor: pointer; font-size: 11px; padding-left: 8px; }
+.tc-default { margin-left: auto; opacity: 0.3; color: var(--dim); cursor: pointer; font-size: 12px; padding: 0 4px; line-height: 1; transition: 0.15s; }
+.theme-card:hover .tc-default { opacity: 0.55; }
+.tc-default:hover { opacity: 1 !important; color: var(--accent); }
+.tc-default.on { opacity: 1 !important; color: var(--accent); text-shadow: 0 0 8px var(--accent); }
+.tc-del { opacity: 0; color: var(--dim); cursor: pointer; font-size: 11px; padding-left: 4px; }
 .theme-card:hover .tc-del { opacity: 0.6; }
 .tc-del:hover { opacity: 1 !important; color: #f7768e; }
 .theme-card { position: relative; padding: 9px 11px 9px 16px; border-radius: 10px; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); transition: 0.15s; overflow: hidden; }
