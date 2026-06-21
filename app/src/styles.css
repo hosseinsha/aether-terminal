@@ -1,0 +1,94 @@
+:root {
+  --accent: #7aa2f7;
+  --accent-2: #bb9af7;
+  --text: #c0caf5;
+  --dim: #565f89;
+  --radius: 14px;
+  --font: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background: #0b0d1a;
+  position: relative;
+}
+
+/* animated aurora background (the prototype's signature look) */
+body::before {
+  content: "";
+  position: fixed; inset: -20%;
+  z-index: 0;
+  filter: blur(45px) saturate(1.1);
+  background:
+    radial-gradient(40% 50% at 18% 22%, rgba(122,162,247,0.40), transparent 60%),
+    radial-gradient(45% 55% at 82% 28%, rgba(187,154,247,0.36), transparent 60%),
+    radial-gradient(50% 50% at 50% 88%, rgba(125,207,255,0.26), transparent 60%),
+    linear-gradient(160deg, #0a0c18, #0c1024 60%, #0a0c18);
+  animation: drift 26s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  0%   { transform: translate3d(0,0,0) scale(1.0); }
+  50%  { transform: translate3d(2%, -1.5%, 0) scale(1.06); }
+  100% { transform: translate3d(-2%, 1.5%, 0) scale(1.02); }
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#titlebar {
+  height: 38px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px 0 84px; /* leave room for macOS traffic lights */
+  font-size: 12px;
+  color: var(--dim);
+  user-select: none;
+}
+.brand {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; letter-spacing: 3px; color: #fff; font-size: 11px;
+}
+.brand .dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--accent), var(--accent-2));
+  box-shadow: 0 0 12px var(--accent);
+}
+.title { color: var(--dim); }
+
+#pane {
+  flex: 1 1 auto;
+  margin: 0 12px 12px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(16, 19, 34, 0.55);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow:
+    0 18px 50px -12px rgba(0,0,0,0.65),
+    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 0 28px -4px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+#term {
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+}
+
+/* let the glass pane show through xterm */
+.xterm, .xterm-viewport { background-color: transparent !important; }
+.xterm-viewport::-webkit-scrollbar { width: 8px; }
+.xterm-viewport::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }

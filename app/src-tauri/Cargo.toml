@@ -1,0 +1,25 @@
+[package]
+name = "aether-app"
+version = "0.1.0"
+description = "AETHER — terminal compositor (macOS)"
+edition = "2021"
+
+[lib]
+# `_lib` suffix keeps the lib name distinct from the bin (Windows quirk).
+name = "aether_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+aether-proto = { path = "../../crates/aether-proto" }
+aether-server = { path = "../../crates/aether-server" }
+
+# Detach from the core workspace so the heavy Tauri build stays isolated; the
+# core crates are still pulled in as path dependencies above.
+[workspace]
