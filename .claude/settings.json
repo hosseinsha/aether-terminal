@@ -8,7 +8,9 @@
       "Bash(find / -type d -iname 'vt100-*')",
       "Bash(pkill -f 'aether-server')",
       "Bash(git --no-pager diff .claude/settings.json)",
-      "Bash(git --no-pager log --oneline -4)"
+      "Bash(git --no-pager log --oneline -4)",
+      "Bash(node --check app/src/main.js)",
+      "Bash(git --no-pager log --oneline -5)"
     ]
   }
 }
