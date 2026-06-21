@@ -14,7 +14,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use aether_proto::{read_msg, write_msg, ClientMsg, ServerMsg};
+use aether_proto::{read_msg, write_msg, ClientMsg, ServerMsg, SessionInfo};
 use serde::Serialize;
 use tauri::{async_runtime, AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -38,6 +38,8 @@ struct ExitedPayload { conn: String, id: u64, code: Option<i32> }
 struct ErrorPayload { conn: String, message: String }
 #[derive(Clone, Serialize)]
 struct ConnStatus { id: String, status: String, message: Option<String> }
+#[derive(Clone, Serialize)]
+struct SessionsPayload { conn: String, sessions: Vec<SessionInfo> }
 
 // ---- Tauri commands (frontend -> a specific connection) --------------------
 
@@ -66,6 +68,16 @@ fn resize(state: State<AppState>, conn: String, id: u64, cols: u16, rows: u16) {
 #[tauri::command]
 fn close_session(state: State<AppState>, conn: String, id: u64) {
     send(&state, &conn, ClientMsg::CloseSession { id });
+}
+#[tauri::command]
+fn list_sessions(state: State<AppState>, conn: String) {
+    send(&state, &conn, ClientMsg::ListSessions);
+}
+/// Stop receiving a session's output without killing it — the session keeps
+/// running on the server and can be reattached later.
+#[tauri::command]
+fn detach(state: State<AppState>, conn: String, id: u64) {
+    send(&state, &conn, ClientMsg::Detach { id });
 }
 
 /// Open a remote (or otherwise out-of-process) connection by spawning a program
@@ -150,7 +162,9 @@ fn dispatch(app: &AppHandle, conn: &str, msg: ServerMsg) {
         ServerMsg::Exited { id, code } => {
             let _ = app.emit("aether:exited", ExitedPayload { conn, id, code });
         }
-        ServerMsg::Sessions(_) => {}
+        ServerMsg::Sessions(sessions) => {
+            let _ = app.emit("aether:sessions", SessionsPayload { conn, sessions });
+        }
         ServerMsg::Error { message } => {
             let _ = app.emit("aether:error", ErrorPayload { conn, message });
         }
@@ -260,6 +274,8 @@ pub fn run() {
             input,
             resize,
             close_session,
+            list_sessions,
+            detach,
             connect_remote
         ])
         .run(tauri::generate_context!())

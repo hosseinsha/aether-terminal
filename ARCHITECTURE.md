@@ -86,6 +86,22 @@ right server) and events carry it (so the webview namespaces panes per host).
 Each connection's command channel is registered synchronously, so a session
 created before the transport finishes connecting buffers rather than dropping.
 
+## Sessions (detach / reattach)
+
+Because session state lives on the server, a pane is just a *view* of a session,
+not the session itself. The **Sessions** picker (⌘L) lists what the active
+connection is running:
+
+- **Detach** (⌘⇧D, or the pane's `⊟`) drops the pane but leaves the session
+  running on the server — the client sends `Detach`, which stops output fan-out
+  without touching the PTY or grid.
+- **Reattach** (click a session in the picker) opens a fresh pane bound to that
+  existing id and sends `Attach`; the server replies with a `Snapshot` of the
+  current screen, so the pane comes back exactly where it left off.
+- **On connect**, a connection bootstraps by `ListSessions`: any sessions the
+  server already has are restored as panes (so reconnecting to a remote host
+  brings its shells back), and only an empty server gets a fresh session.
+
 ## Roadmap
 
 - [x] Protocol + headless server + PTY/grid/persistence foundation
@@ -96,6 +112,7 @@ created before the transport finishes connecting buffers rather than dropping.
 - [x] Live appearance panel (gap/radius/translucency/depth-of-field/accent)
 - [x] BSP layout: drag-to-resize splits + overview drag-to-rearrange
 - [x] Remote transport (SSH via `--stdio`) + host picker
-- [ ] Detach/reattach UX + session list (sessions persist on remote servers)
+- [x] Detach/reattach UX + session list (detach keeps the session alive on the
+      server; reattach replays its screen via `Snapshot`)
 - [ ] Scrollback streaming beyond the visible screen
 - [ ] Evaluate native `wgpu` renderer if the webview hits a perf/shader ceiling

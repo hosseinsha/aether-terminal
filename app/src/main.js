@@ -109,9 +109,9 @@ const dividers = document.createElement("div");
 dividers.id = "dividers";
 canvas.appendChild(dividers);
 
-// conn = { id, label, root, panes:[], focusId, pending:[], status }
+// conn = { id, label, root, panes:[], focusId, pending:[], status, sessions:[], bootstrapped, restoring }
 const conns = new Map();
-conns.set("local", { id: "local", label: "local", root: null, panes: [], focusId: null, pending: [], status: "connected" });
+conns.set("local", { id: "local", label: "local", root: null, panes: [], focusId: null, pending: [], status: "connected", sessions: [], bootstrapped: false, restoring: false });
 let activeConn = "local";
 
 let maximized = false;
@@ -230,23 +230,28 @@ function fitPane(p) {
   if (p.sessionId !== null) invoke("resize", { conn: p.conn, id: p.sessionId, cols: p.term.cols, rows: p.term.rows });
 }
 
-function addPane() {
-  const c = cur();
-  if (c.panes.length >= 8) return;
+// Build a pane element and splice it into a connection's BSP tree. Returns the
+// pane (or null at the cap). Talks to no server — callers either spawn a new
+// session (addPane) or reattach to an existing one (reattachPane).
+function buildPane(connId = activeConn) {
+  const c = conns.get(connId);
+  if (!c || c.panes.length >= 8) return null;
   const id = uid++;
   const el = document.createElement("div");
   el.className = "pane opening";
   el.dataset.id = id;
   el.innerHTML =
     '<div class="pane-head"><span class="tdot"></span><span class="pane-title">shell</span>' +
-    '<span class="spacer"></span><span class="pane-close" title="close">✕</span></div>' +
+    '<span class="spacer"></span><span class="pane-detach" title="Detach — keeps the session alive">⊟</span>' +
+    '<span class="pane-close" title="Close — ends the session">✕</span></div>' +
     '<div class="pane-body"><div class="term-mount"></div></div>';
 
   const { term, fit } = makeTerminal();
-  const p = { id, el, term, fit, sessionId: null, title: "shell", conn: activeConn };
+  const p = { id, el, term, fit, sessionId: null, title: "shell", conn: connId };
 
   el.addEventListener("mousedown", (e) => {
     if (e.target.classList.contains("pane-close")) { e.stopPropagation(); closePane(id); return; }
+    if (e.target.classList.contains("pane-detach")) { e.stopPropagation(); detachPane(id); return; }
     if (stage.classList.contains("overview")) { startRearrange(e, id); return; }
     setFocus(id);
   });
@@ -280,7 +285,14 @@ function addPane() {
   maximized = false;
   requestAnimationFrame(() => el.classList.remove("opening"));
   layout();
+  return p;
+}
 
+// New pane backed by a freshly spawned session.
+function addPane() {
+  const p = buildPane();
+  if (!p) return;
+  const c = conns.get(p.conn);
   setTimeout(() => {
     fitPane(p);
     invoke("create_session", { conn: p.conn, cols: p.term.cols || 80, rows: p.term.rows || 24 });
@@ -288,11 +300,30 @@ function addPane() {
   }, 30);
 }
 
-function closePane(id) {
-  const c = cur();
-  if (c.panes.length <= 1) return;
+// Pane backed by an *existing* server session: attach replays its screen
+// (Snapshot) then streams live output.
+function reattachPane(info, connId = activeConn) {
+  if (bySession.has(connId + "/" + info.id)) {
+    if (connId === activeConn) setFocus(bySession.get(connId + "/" + info.id).id);
+    return;
+  }
+  const p = buildPane(connId);
+  if (!p) return;
+  p.sessionId = info.id;
+  p.title = info.title;
+  p.el.querySelector(".pane-title").textContent = info.title;
+  bySession.set(connId + "/" + info.id, p);
+  setTimeout(() => {
+    invoke("attach", { conn: connId, id: info.id });
+    fitPane(p);
+  }, 30);
+}
+
+// Remove a pane from a connection's tree + DOM and return it. Touches no
+// server — the caller decides close (kill the session) vs detach (keep it).
+function removePane(c, id) {
   const idx = c.panes.findIndex((p) => p.id === id);
-  if (idx < 0) return;
+  if (idx < 0) return null;
   const p = c.panes[idx];
 
   const leaf = findLeaf(c.root, id);
@@ -307,13 +338,37 @@ function closePane(id) {
     else grand.b = sibling;
   }
 
-  if (p.sessionId !== null) { invoke("close_session", { conn: p.conn, id: p.sessionId }); bySession.delete(p.conn + "/" + p.sessionId); }
   c.panes.splice(idx, 1);
   p.el.classList.add("closing");
   setTimeout(() => { p.el.remove(); try { p.term.dispose(); } catch (_) {} }, 420);
-  if (c.focusId === id) c.focusId = c.panes[Math.min(idx, c.panes.length - 1)].id;
+  if (c.focusId === id) c.focusId = c.panes.length ? c.panes[Math.min(idx, c.panes.length - 1)].id : null;
   maximized = false;
   layout();
+  return p;
+}
+
+// Close: end the session and drop the pane. Keep at least one pane around.
+function closePane(id) {
+  const c = cur();
+  if (c.panes.length <= 1) return;
+  const p = removePane(c, id);
+  if (p && p.sessionId !== null) {
+    invoke("close_session", { conn: p.conn, id: p.sessionId });
+    bySession.delete(p.conn + "/" + p.sessionId);
+  }
+}
+
+// Detach: drop the pane but keep the session running on the server, so it can
+// be brought back from the Sessions list (or on the next connect).
+function detachPane(id) {
+  const c = cur();
+  const p = removePane(c, id);
+  if (!p) return;
+  if (p.sessionId !== null) {
+    invoke("detach", { conn: p.conn, id: p.sessionId });
+    bySession.delete(p.conn + "/" + p.sessionId);
+    refreshSessions(p.conn);
+  }
 }
 
 function setFocus(id) { cur().focusId = id; maximized = false; layout(); }
@@ -432,15 +487,17 @@ function switchConn(id) {
   if (!conns.has(id)) return;
   activeConn = id;
   maximized = false;
+  closeSessionMenu();
   layout();
   updateHostUI();
-  const c = cur();
-  if (c.panes.length === 0 && (id === "local" || c.status === "connected")) addPane();
+  updateSessionUI();
+  bootstrapConn(id);
+  refreshSessions(id);
 }
 function connectRemote(host) {
   const id = host;
   if (conns.has(id)) { switchConn(id); return; }
-  conns.set(id, { id, label: host, root: null, panes: [], focusId: null, pending: [], status: "connecting" });
+  conns.set(id, { id, label: host, root: null, panes: [], focusId: null, pending: [], status: "connecting", sessions: [], bootstrapped: false, restoring: false });
   invoke("connect_remote", { id, program: "ssh", args: [host, "aether-server --stdio"] });
   switchConn(id);
 }
@@ -448,9 +505,75 @@ function handleConnStatus({ id, status, message }) {
   const c = conns.get(id);
   if (c) c.status = status;
   updateHostUI();
-  if (status === "connected" && c && activeConn === id && c.panes.length === 0) addPane();
+  if (status === "connected" && activeConn === id) bootstrapConn(id);
   if ((status === "stderr" || status === "closed") && message) toast(id + ": " + message);
 }
+
+// ============================================================
+// Sessions (list / detach / reattach)
+// ============================================================
+// First time a connection is usable, ask what sessions already exist and
+// restore them as panes; if the server has none, open a fresh one.
+function bootstrapConn(id) {
+  const c = conns.get(id);
+  if (!c || c.bootstrapped) return;
+  if (id !== "local" && c.status !== "connected") return;
+  c.bootstrapped = true;
+  c.restoring = true;
+  invoke("list_sessions", { conn: id });
+}
+function refreshSessions(id = activeConn) {
+  if (conns.has(id)) invoke("list_sessions", { conn: id });
+}
+function updateSessionUI() {
+  const c = cur();
+  const n = c && c.sessions ? c.sessions.length : 0;
+  const lbl = document.getElementById("session-label");
+  if (lbl) lbl.textContent = n + (n === 1 ? " session" : " sessions");
+}
+function sessionMenuEl() { return document.getElementById("session-menu"); }
+function renderSessionMenu() {
+  updateSessionUI();
+  const m = sessionMenuEl();
+  if (!m || !m.classList.contains("open")) return;
+  const c = cur();
+  const list = c && c.sessions ? c.sessions : [];
+  m.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "session-head";
+  head.textContent = "Sessions · " + (c ? c.label : activeConn);
+  m.appendChild(head);
+  if (list.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "session-empty";
+    empty.textContent = "No sessions yet.";
+    m.appendChild(empty);
+  }
+  list.forEach((info) => {
+    const attached = bySession.has(activeConn + "/" + info.id);
+    const it = document.createElement("div");
+    it.className = "session-item" + (attached ? " attached" : "");
+    it.innerHTML =
+      `<span class="sdot ${attached ? "on" : ""}"></span>` +
+      `<span class="s-title">${info.title}</span><span class="s-id">#${info.id}</span>` +
+      `<span class="s-state">${attached ? "attached" : "detached"}</span>`;
+    it.onclick = () => {
+      if (attached) setFocus(bySession.get(activeConn + "/" + info.id).id);
+      else reattachPane(info, activeConn);
+      closeSessionMenu();
+    };
+    m.appendChild(it);
+  });
+  const sep = document.createElement("div"); sep.className = "host-sep"; m.appendChild(sep);
+  const add = document.createElement("div");
+  add.className = "session-new";
+  add.textContent = "+ New session";
+  add.onclick = () => { addPane(); closeSessionMenu(); };
+  m.appendChild(add);
+}
+function openSessionMenu() { sessionMenuEl().classList.add("open"); refreshSessions(); renderSessionMenu(); }
+function closeSessionMenu() { const m = sessionMenuEl(); if (m) m.classList.remove("open"); }
+function toggleSessionMenu() { sessionMenuEl().classList.contains("open") ? closeSessionMenu() : openSessionMenu(); }
 
 // ============================================================
 // Server -> panes
@@ -467,6 +590,19 @@ await listen("aether:created", (e) => {
   bySession.set(conn + "/" + id, p);
   invoke("attach", { conn, id });
   fitPane(p);
+  refreshSessions(conn);
+});
+await listen("aether:sessions", (e) => {
+  const { conn, sessions } = e.payload;
+  const c = conns.get(conn);
+  if (!c) return;
+  c.sessions = sessions;
+  if (c.restoring) {
+    c.restoring = false;
+    sessions.forEach((info) => { if (!bySession.has(conn + "/" + info.id)) reattachPane(info, conn); });
+    if (sessions.length === 0 && c.panes.length === 0 && conn === activeConn) addPane();
+  }
+  if (conn === activeConn) renderSessionMenu();
 });
 await listen("aether:snapshot", (e) => {
   const p = bySession.get(e.payload.conn + "/" + e.payload.id);
@@ -508,6 +644,14 @@ document.getElementById("host-btn").addEventListener("click", (e) => {
 });
 document.addEventListener("click", (e) => {
   if (!e.target.closest("#host-wrap")) closeHostMenu();
+});
+
+document.getElementById("session-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleSessionMenu();
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#session-wrap")) closeSessionMenu();
 });
 
 const ACCENTS = [
@@ -559,9 +703,12 @@ bindToggle("t-crt", () => document.body.classList.add("crt"), () => document.bod
 
 window.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
+  // ⌘D split / ⌘⇧D detach. Match on e.code: macOS WebKit reports the unshifted
+  // letter in e.key while Command is held, so "d"/"D" can't tell them apart.
+  if (e.code === "KeyD") { e.preventDefault(); e.shiftKey ? detachPane(cur().focusId) : addPane(); return; }
   switch (e.key) {
-    case "d": e.preventDefault(); addPane(); break;
     case "w": e.preventDefault(); closePane(cur().focusId); break;
+    case "l": e.preventDefault(); toggleSessionMenu(); break;
     case "]": e.preventDefault(); cycleFocus(1); break;
     case "[": e.preventDefault(); cycleFocus(-1); break;
     case "Enter": e.preventDefault(); toggleMax(); break;
@@ -584,4 +731,5 @@ window.addEventListener("resize", () => {
 // ============================================================
 applyTheme("default");
 updateHostUI();
-addPane();
+updateSessionUI();
+bootstrapConn("local");
