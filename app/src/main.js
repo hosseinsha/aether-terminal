@@ -241,7 +241,7 @@ await listen("aether:error", (e) => {
 // ============================================================
 // Input: dock + keyboard
 // ============================================================
-document.querySelectorAll("#dock .dock-btn").forEach((b) => {
+document.querySelectorAll("#controls .ctl").forEach((b) => {
   b.addEventListener("click", () => {
     const a = b.dataset.act;
     if (a === "split") addPane();
@@ -250,6 +250,10 @@ document.querySelectorAll("#dock .dock-btn").forEach((b) => {
     else if (a === "overview") toggleOverview();
     else if (a === "theme") cycleTheme();
   });
+});
+
+document.getElementById("ctl-toggle").addEventListener("click", () => {
+  document.body.classList.toggle("controls-hidden");
 });
 
 // Capture phase so our ⌘ shortcuts win before xterm sees the keystroke.
@@ -263,6 +267,7 @@ window.addEventListener("keydown", (e) => {
     case "Enter": e.preventDefault(); toggleMax(); break;
     case "y": e.preventDefault(); cycleTheme(); break;
     case "o": e.preventDefault(); toggleOverview(); break;
+    case ".": e.preventDefault(); document.body.classList.toggle("controls-hidden"); break;
     case "Escape": if (stage.classList.contains("overview")) { e.preventDefault(); toggleOverview(); } break;
   }
 }, true);

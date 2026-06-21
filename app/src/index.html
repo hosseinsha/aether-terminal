@@ -12,20 +12,18 @@
     <div id="titlebar" data-tauri-drag-region>
       <span class="brand"><span class="dot"></span> AETHER</span>
       <span id="title" class="title">local</span>
+      <div id="controls">
+        <button class="ctl" data-act="split" title="Split  ⌘D">⊞ <span class="lbl">Split</span></button>
+        <button class="ctl" data-act="close" title="Close  ⌘W">✕ <span class="lbl">Close</span></button>
+        <button class="ctl" data-act="max" title="Zoom  ⌘↵">⤢ <span class="lbl">Zoom</span></button>
+        <button class="ctl" data-act="overview" title="Overview  ⌘O">▦ <span class="lbl">Overview</span></button>
+        <button class="ctl" id="theme-btn" data-act="theme" title="Cycle theme  ⌘Y"><span class="swatch"></span><span id="theme-label" class="lbl">Default</span></button>
+      </div>
+      <button id="ctl-toggle" title="Show/hide controls  ⌘.">⋯</button>
     </div>
 
     <div id="stage">
       <div id="canvas"></div>
-    </div>
-
-    <div id="dock">
-      <div class="dock-btn" data-act="split"><span>⊞ Split</span><span class="kbd">⌘D</span></div>
-      <div class="dock-btn" data-act="close"><span>✕ Close</span><span class="kbd">⌘W</span></div>
-      <div class="dock-sep"></div>
-      <div class="dock-btn" data-act="max"><span>⤢ Zoom</span><span class="kbd">⌘↵</span></div>
-      <div class="dock-btn" data-act="overview"><span>▦ Overview</span><span class="kbd">⌘O</span></div>
-      <div class="dock-sep"></div>
-      <div class="dock-btn" id="theme-btn" data-act="theme"><span class="swatch"></span><span id="theme-label">Default</span><span class="kbd">⌘Y</span></div>
     </div>
   </div>
 
