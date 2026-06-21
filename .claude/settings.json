@@ -22,7 +22,8 @@
       "Bash(find target/release/bundle -maxdepth 2 \\\\\\( -name '*.app' -o -name '*.dmg' \\\\\\))",
       "Bash(du -sh target/release/bundle/macos/*.app)",
       "Bash(osascript -e 'tell application \"System Events\" to get name of first process whose frontmost is true')",
-      "Bash(screencapture -x /tmp/builtapp.png)"
+      "Bash(screencapture -x /tmp/builtapp.png)",
+      "Bash(git --no-pager log --oneline -2)"
     ],
     "additionalDirectories": [
       "/tmp",
