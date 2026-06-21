@@ -118,4 +118,7 @@ connection is running:
       server; reattach replays its screen via `Snapshot`)
 - [x] Scrollback beyond the visible screen (attach replays a rolling raw-output
       history buffer, ~1 MiB/session, so reattach restores scrollable history)
-- [ ] Evaluate native `wgpu` renderer if the webview hits a perf/shader ceiling
+- [x] Evaluated the WebGL renderer under load — 8 panes + a 2+ MB/s text flood +
+      the animated compositor all hold ~60 fps jank-free; the only hitches are
+      the one-time cost of creating a pane's WebGL context. No perf/shader
+      ceiling hit, so a native `wgpu` renderer isn't warranted yet.
