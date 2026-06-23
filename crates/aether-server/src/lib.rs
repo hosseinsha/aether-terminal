@@ -85,6 +85,11 @@ impl Session {
 
         let shell = shell.unwrap_or_else(default_shell);
         let mut cmd = CommandBuilder::new(&shell);
+        // Run as a login shell (`-l`) so it sources the user's profile -
+        // ~/.zprofile, /etc/zprofile (macOS path_helper), etc. Without this, a
+        // GUI-launched app only inherits launchd's bare PATH, so Homebrew tools
+        // (and anything PATH'd in from a login file) come back "command not found".
+        cmd.arg("-l");
         cmd.env("TERM", "xterm-256color");
         if let Some(home) = std::env::var_os("HOME") {
             cmd.cwd(home);
