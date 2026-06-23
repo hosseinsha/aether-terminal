@@ -27,3 +27,12 @@ window-vibrancy = "0.6"
 # Detach from the core workspace so the heavy Tauri build stays isolated; the
 # core crates are still pulled in as path dependencies above.
 [workspace]
+
+# Production profile for the app. Because this is its own workspace root, it does
+# NOT inherit the repo-root [profile.release]; declare it here so release bundles
+# are actually optimized. panic stays "unwind" so Tauri can still catch a panic
+# in a command handler instead of aborting the whole app.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
