@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use aether_proto::{read_msg, write_msg, ClientMsg, ServerMsg, SessionInfo};
+use base64::Engine as _;
 use serde::Serialize;
 use tauri::{async_runtime, AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -30,8 +31,15 @@ struct AppState {
 
 #[derive(Clone, Serialize)]
 struct CreatedPayload { conn: String, id: u64, title: String }
+// PTY bytes ride as base64 (`data`) rather than a JSON number array: a `Vec<u8>`
+// serialises to `[12,34,...]` (~4 chars/byte) which dominates output latency
+// under heavy load. Base64 is ~1.35 char/byte and parses as a plain string.
 #[derive(Clone, Serialize)]
-struct DataPayload { conn: String, id: u64, data: Vec<u8> }
+struct DataPayload { conn: String, id: u64, data: String }
+
+fn b64(data: Vec<u8>) -> String {
+    base64::engine::general_purpose::STANDARD.encode(data)
+}
 #[derive(Clone, Serialize)]
 struct ExitedPayload { conn: String, id: u64, code: Option<i32> }
 #[derive(Clone, Serialize)]
@@ -154,10 +162,10 @@ fn dispatch(app: &AppHandle, conn: &str, msg: ServerMsg) {
             let _ = app.emit("aether:created", CreatedPayload { conn, id: info.id, title: info.title });
         }
         ServerMsg::Snapshot { id, data } => {
-            let _ = app.emit("aether:snapshot", DataPayload { conn, id, data });
+            let _ = app.emit("aether:snapshot", DataPayload { conn, id, data: b64(data) });
         }
         ServerMsg::Output { id, data } => {
-            let _ = app.emit("aether:output", DataPayload { conn, id, data });
+            let _ = app.emit("aether:output", DataPayload { conn, id, data: b64(data) });
         }
         ServerMsg::Exited { id, code } => {
             let _ = app.emit("aether:exited", ExitedPayload { conn, id, code });
