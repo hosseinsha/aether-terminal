@@ -21,7 +21,7 @@ html, body { height: 100%; overflow: hidden; }
 body {
   font-family: var(--font);
   color: var(--text);
-  background: transparent; /* let native macOS vibrancy show through */
+  background: #0b0d1a; /* opaque base: an opaque window avoids per-frame desktop compositing (~3x less GPU); the app paints its own pixel-art backdrop on top */
   position: relative;
 }
 
