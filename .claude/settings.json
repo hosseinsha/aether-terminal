@@ -100,7 +100,15 @@
       "Bash(osascript -e 'tell application \"System Events\" to tell \\(first process whose name is \"aether-app\"\\) to get title of front window')",
       "Bash(awk '{print $5, $6, $7, $8}')",
       "Bash(open -a /Applications/Aether.app)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(/tmp/measure8.sh \"DOM renderer \\(no WebGL\\)\")",
+      "Bash(/tmp/measure8.sh \"box-shadow OFF\")",
+      "Bash(/tmp/measure8.sh \"opaque panes\")",
+      "Bash(pkill -f \"/Applications/Aether.app\")",
+      "Bash(pkill -f \"aether-app\")",
+      "Bash(rm -rf /Applications/Aether.app)",
+      "Bash(ditto app/src-tauri/target/release/bundle/macos/Aether.app /Applications/Aether.app)",
+      "Bash(awk '{print \"installed size: \"$1}')"
     ],
     "additionalDirectories": [
       "/tmp",
