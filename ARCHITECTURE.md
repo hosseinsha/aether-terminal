@@ -1,10 +1,13 @@
 # Architecture
 
-AETHER is a **remote-first terminal compositor**. The design decision that drives
-everything: terminal state lives in a **headless server**, not in the UI. A
-client (the macOS app) attaches to a server to see and drive sessions. Because
-the server speaks a transport-agnostic protocol, "local" and "remote" are the
-same code path over a different socket.
+AETHER is a terminal compositor where **your shells keep running when you close the
+window** — detach, reattach, local or remote. The design decision that drives
+everything: terminal state lives in a **headless server**,
+not in the UI. A client (the macOS app) attaches to a server to see and drive
+sessions — so a pane is just a *view*, and closing it (or the window) need not
+kill the session. Remote falls out for free: because the server speaks a
+transport-agnostic protocol, "local" and "remote" are the same code path over a
+different socket.
 
 ```
 ┌───────────────────────────────┐                ┌───────────────────────────────┐
@@ -26,16 +29,21 @@ same code path over a different socket.
 | -------------------- | ------------------------------------------------------------------- | ------ |
 | `aether-proto`       | wire protocol (`ClientMsg`/`ServerMsg`) + length-prefixed codec      | ✅ done |
 | `aether-server`      | headless session server: PTYs, grid mirror, sessions, Unix socket    | ✅ done |
-| `aether-app` (Tauri) | macOS client: connects to a server, bridges proto ↔ webview          | ⏳ next |
+| `aether-app` (Tauri) | macOS client: connects to a server, bridges proto ↔ webview          | ✅ done |
 
 The `prototype/` folder holds the original HTML/CSS/JS design mockup. The app
-frontend will be a refactor of it, with each pane backed by a real `xterm.js`
-renderer instead of static text.
+frontend is a modular refactor of it (ES modules under `app/src/`): a
+`compositor` (BSP tree, panes, focus, the two drag interactions), `host` and
+`session` controllers, an `appearance` controller, and a procedural pixel-art
+engine (`pixel-art` / `pixel-scenes` / `color`). Pure logic — tree mutations,
+drag math, colour — is covered by `node:test` units (`npm run check` runs
+eslint + prettier + tests). Each pane is a real `xterm.js` (WebGL) terminal
+instead of static text.
 
 ## Why state lives on the server
 
 The product promise is "panes don't die." For that, PTYs and their screen state
-must outlive any window:
+must keep running independently of any window:
 
 - **Persistence / detach-reattach** — close the app, sessions keep running; on
   reconnect the server replays a **snapshot** (a rolling buffer of the raw PTY
@@ -79,7 +87,11 @@ The app's Rust side is a thin bridge that can hold several connections at once,
 each identified by a string id. Commands carry that id (so they route to the
 right server) and events carry it (so the webview namespaces panes per host).
 
-- **local** — the embedded in-process server over a private Unix socket.
+- **local** — the embedded in-process server over a private Unix socket. It lives
+  inside the app process today, so local sessions survive detach/reattach within a
+  run but not quitting the app (a persistent local daemon is on the roadmap — see
+  below). Remote sessions run as a separate process, so they survive the app
+  closing entirely.
 - **remote** — `ssh user@host aether-server --stdio`: the server's `--stdio`
   mode serves the protocol over stdin/stdout, so SSH just pipes the same bytes.
   Adding a host in the picker spawns that ssh child and wires it like any other
@@ -110,7 +122,7 @@ connection is running:
 - [x] Tauri app shell (macOS) with the thin proto↔webview client
 - [x] `xterm.js` panes wired to `Snapshot`/`Output`/`Input`/`Resize`
 - [x] Port the CSS compositor (depth-of-field, reflow, themes) onto live panes
-- [x] macOS vibrancy + WebGL renderer
+- [x] WebGL-rendered `xterm.js` panes (one GL context per pane)
 - [x] Live appearance panel (gap/radius/translucency/depth-of-field/accent)
 - [x] BSP layout: drag-to-resize splits + overview drag-to-rearrange
 - [x] Remote transport (SSH via `--stdio`) + host picker
@@ -122,3 +134,20 @@ connection is running:
       the animated compositor all hold ~60 fps jank-free; the only hitches are
       the one-time cost of creating a pane's WebGL context. No perf/shader
       ceiling hit, so a native `wgpu` renderer isn't warranted yet.
+- [x] Modularized the webview frontend (controllers + tested pure-logic modules,
+      eslint/prettier/`node:test`) and gave the app an optimized release profile
+      (LTO, `codegen-units=1`, strip).
+- [x] Login-shell PTYs so panes inherit the user's `PATH`; base64-framed PTY
+      output (a `Vec<u8>` serializes to a JSON number array on Tauri events —
+      ~4 chars/byte — which dominated heavy-output latency).
+- [x] Tracked down the idle-GPU floor: it was the **transparent** WKWebView, not
+      the renderer. A transparent window re-composites against the desktop every
+      frame, scaling with pane count (8 panes ≈ 48% GPU idle). Switched to an
+      **opaque** window that paints its own backdrop → ≈ 16%, visually identical
+      (the macOS vibrancy it dropped was already occluded by the pixel-art). The
+      per-pane WebGL renderer was confirmed *not* the bottleneck, so the deeper
+      "drop `xterm.js` for a shared GPU/cells renderer" rewrite was shelved.
+- [ ] Persistent local server — run the local server as a detached daemon rather
+      than in-process, so local panes survive app restarts too. Today only remote
+      sessions (a separate process) keep running after the app quits; this makes
+      "panes don't die" true for the local case as well.
